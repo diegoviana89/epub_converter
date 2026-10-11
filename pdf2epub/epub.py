@@ -10,6 +10,10 @@ import uuid
 import zipfile
 
 from .analyze import CAPTION_RE, esc
+
+# pie numerado: "Figure 3.1.", "Fig. 2-4", "Tabla 5", "Listing 2.5"
+NUMCAP_RE = re.compile(r"^(fig(?:ura|ure)?\.?|figura|imagen|image|tabla|table|cuadro|listing|listado|plate|lámina)"
+                       r"\s*\d+(?:[.\-–]\d+)*\b", re.I)
 from .model import Asset, Block
 
 CSS = """\
@@ -33,6 +37,10 @@ h3 { font-size: 1.12em; margin: 1.1em 0 .5em; }
 h4 { font-size: 1em; margin: 1em 0 .4em; }
 figure { margin: 1em 0; padding: 0; text-align: center; text-indent: 0; page-break-inside: avoid; }
 figure img { max-width: 100%; height: auto; }
+/* iconos al margen del original (TIP, NOTE...): flotan a la izquierda del párrafo que señalan */
+figure.icon { float: left; clear: left; width: 3.2em; margin: .15em .7em .2em 0; page-break-inside: auto; }
+figure.icon img { width: 100%; }
+figure.icon + p { text-indent: 0; }
 figcaption { font-size: .85em; text-align: center; text-indent: 0; margin-top: .4em; line-height: 1.25; }
 div.page { margin: 0; padding: 0; text-align: center; page-break-after: always; }
 div.page img { max-width: 100%; max-height: 100%; }
@@ -79,24 +87,45 @@ def finalize_blocks(blocks: list[Block]) -> list[Block]:
     for b in blocks:
         if b.kind == "h":
             b.level = rank.get(b.hkey, 3)
-    # pies de figura
+    # pies de figura. Cada libro sigue una convención (pie debajo, o encima como en Manning): se
+    # decide por mayoría entre los pies numerados ("Figura 3.2") pegados a una figura
+    def is_cap(x, strict=False):
+        return (x is not None and x.kind == "p" and "li" not in x.cls and len(x.text) < 400
+                and (NUMCAP_RE.match(x.text) if strict else CAPTION_RE.match(x.text)))
+    figs = [i for i, b in enumerate(blocks) if b.kind in ("img", "table") and b.cls not in ("chart-skip", "icon")]
+    below = sum(1 for i in figs if is_cap(blocks[i + 1] if i + 1 < len(blocks) else None, True))
+    above = sum(1 for i in figs if i > 0 and is_cap(blocks[i - 1], True))
+    top_first = above > 1.5 * below
     out: list[Block] = []
     i = 0
     while i < len(blocks):
         b = blocks[i]
-        if b.kind in ("img", "table") and b.cls != "chart-skip":
+        if b.kind in ("img", "table") and b.cls not in ("chart-skip", "icon"):
             nxt = blocks[i + 1] if i + 1 < len(blocks) else None
-            if nxt and nxt.kind == "p" and CAPTION_RE.match(nxt.text) and len(nxt.text) < 400 and "li" not in nxt.cls:
+            prev = out[-1] if out else None
+            if top_first and is_cap(prev, True):
+                b.caption, b.cap_top = prev.html, True
+                if b.alt.startswith(("Figura", "Tabla")):
+                    b.alt = prev.text[:120]
+                out.pop()
+                out.append(b)
+                i += 1
+                continue
+            if is_cap(nxt):
                 b.caption = nxt.html
                 if b.alt.startswith(("Figura", "Tabla")):
                     b.alt = nxt.text[:120]
                 out.append(b)
                 i += 2
                 continue
-            prev = out[-1] if out else None
             if (b.cls == "table" or b.kind == "table") and prev and prev.kind == "p" and \
                     re.match(r"^(tabla|table|cuadro)\b", prev.text, re.I) and len(prev.text) < 250:
                 b.caption, b.cap_top = prev.html, True
+                out.pop()
+            elif is_cap(prev, True):        # sin pie debajo: el numerado de justo encima
+                b.caption, b.cap_top = prev.html, True
+                if b.alt.startswith(("Figura", "Tabla")):
+                    b.alt = prev.text[:120]
                 out.pop()
         out.append(b)
         i += 1
@@ -234,7 +263,8 @@ def _block_html(b: Block, assets: list[Asset]) -> str:
         cap = f"<figcaption>{b.caption}</figcaption>" if b.caption else ""
         top = cap if b.cap_top else ""
         bottom = "" if b.cap_top else cap
-        return (f'<figure{idattr}>{top}<img src="../images/{a.name}" alt="{html.escape(b.alt, quote=True)}"{w}/>'
+        fc = ' class="icon"' if b.cls == "icon" else ""
+        return (f'<figure{fc}{idattr}>{top}<img src="../images/{a.name}" alt="{html.escape(b.alt, quote=True)}"{w}/>'
                 f"{bottom}</figure>")
     return ""
 

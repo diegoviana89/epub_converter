@@ -171,6 +171,7 @@ class Flow:
         self.ctx, self.out, self.kind = ctx, out, kind
         self.cur: _Cur | None = None
         self.pending: list[Block] = []
+        self.cap: list[Line] | None = None     # pie de figura en curso (ver feed)
         self.prev: Line | None = None
         self.after_obj = False
         self.dropcap: Line | None = None
@@ -178,7 +179,18 @@ class Flow:
         self.callouts = False            # justo después de un bloque de código
 
     # -- API
+    def _flush_cap(self):
+        cap, self.cap = self.cap, None
+        blk = self._make_para(cap) if cap else None
+        if blk is not None:
+            self.pending.append(blk)
+
     def add_object(self, blk: Block):
+        if self.cap is not None:
+            self._flush_cap()
+        if (self.cur is not None and self.cur.kind == "p"
+                and CAPTION_RE.match(self.cur.lines[0].text.strip())):
+            self.close()               # un pie de figura no es un párrafo que la figura interrumpa
         if self.cur is not None and self.cur.kind == "p":
             self.pending.append(blk)
         else:
@@ -197,6 +209,17 @@ class Flow:
         t = ln.text.strip()
         if len(t) == 1 and t.isalpha() and ln.size >= 1.8 * self.ctx.body:
             self.dropcap = ln          # letra capital: se pega a la línea siguiente
+            return
+        if self.cap is not None:
+            last = self.cap[-1]
+            if (ln.page == last.page and abs(ln.size - last.size) < 0.3 and not CAPTION_RE.match(t)
+                    and 0 < ln.base - last.base <= 1.7 * ln.size):
+                self.cap.append(ln)    # segunda línea del pie
+                return
+            self._flush_cap()
+        if self.after_obj and self.pending and self.cur is not None and self.cur.kind == "p" and CAPTION_RE.match(t):
+            # pie de una figura que interrumpe un párrafo: va con la figura y el párrafo sigue abierto
+            self.cap = [ln]
             return
         if self.dropcap is not None:
             dc = self.dropcap
@@ -270,6 +293,8 @@ class Flow:
         self.after_obj = False
 
     def close(self):
+        if self.cap is not None:
+            self._flush_cap()
         cur = self.cur
         if cur is not None:
             self.cur = None
@@ -315,6 +340,12 @@ class Flow:
             return True                # cada entrada del índice impreso, su propio párrafo
         if abs(prev.size - ln.size) > 0.7:
             return True
+        if (first is not None and first is not ln and CAPTION_RE.match(first.text.strip())
+                and abs(ln.size - first.size) < 0.3
+                and ((ln.page == prev.page and not cross and 0 < ln.base - prev.base <= 1.7 * size)
+                     or (ln.page == prev.page + 1 and ln.bstart))   # el pie sigue en la página siguiente
+                and abs(ln.x0 - first.x0) < 2 * size and not CAPTION_RE.match(ln.text.strip())):
+            return False               # pie de figura de varias líneas (título + descripción)
         txt = ln.text.lstrip()
         if LIST_RE.match(txt):
             return True
@@ -619,8 +650,10 @@ def _grow(bbox: pymupdf.Rect, lines: list[Line], body: float) -> pymupdf.Rect:
         grown = False
         for l in lines:
             r = pymupdf.Rect(l.x0, l.y0, l.x1, l.y1)
-            if (len(l.text.strip()) <= 14 and l.size <= body * 1.15 and not bbox.contains(r)
-                    and zone.intersects(r)):
+            t = l.text.strip()
+            # etiqueta: corta, o en letra claramente menor que el cuerpo (leyendas, ejes); nunca un pie
+            label = len(t) <= 14 or (l.size <= 0.85 * body and len(t) <= 45 and not CAPTION_RE.match(t))
+            if label and l.size <= body * 1.15 and not bbox.contains(r) and zone.intersects(r):
                 bbox |= r
                 grown = True
         if not grown:
@@ -721,12 +754,14 @@ def _code_box(bbox, lines, rects_only: bool, page_w: float) -> bool:
     inside = [l for l in lines if bbox.x0 <= (l.x0 + l.x1) / 2 <= bbox.x1 and bbox.y0 <= l.cy <= bbox.y1]
     if not inside:               # sin texto: marco de rectángulos o franja separadora
         return rects_only or (bbox.width > 0.6 * page_w and bbox.height < 0.2 * bbox.width)
-    return all(_mono_line(l) for l in inside)
+    return sum(len(l.text.strip()) for l in inside) >= 8 and all(_mono_line(l) for l in inside)
 
 
 def _text_box(bbox, lines, body: float) -> bool:
     """Recuadro de fondo liso con texto en una sola columna (p. ej. "En este capítulo")."""
     inside = [l for l in lines if bbox.x0 <= (l.x0 + l.x1) / 2 <= bbox.x1 and bbox.y0 <= l.cy <= bbox.y1]
+    # texto corrido de verdad: las etiquetas sueltas de una gráfica («1», «2», «−5») no cuentan
+    inside = [l for l in inside if len(l.text.strip()) >= 12]
     if len(inside) < 3:
         return False
     x0s = [l.x0 for l in inside]
@@ -744,6 +779,9 @@ def find_regions(page: pymupdf.Page, lines: list[Line], imgs: list, table_rects,
     flat: list[bool] = []          # sin detalle: imagen plana o solo rectángulos/rectas
     bleed: list[bool] = []
     boxy: list[bool] = []          # solo rectángulos (marcos, fondos)
+    src: list = []                 # info de la imagen incrustada (None para dibujos)
+    curvy: list[bool] = []         # dibujo con curvas (ilustración, no filete ni marco)
+    strokes: list[int] = []        # número de trazos del dibujo
     inline: dict = {}
     cache = flat_cache if flat_cache is not None else {}
     outside = lambda q: q.x0 < pr.x0 - 1 or q.y0 < pr.y0 - 1 or q.x1 > pr.x1 + 1 or q.y1 > pr.y1 + 1
@@ -763,6 +801,9 @@ def find_regions(page: pymupdf.Page, lines: list[Line], imgs: list, table_rects,
                                 None if xref else _inline_image(page, r, inline)))
         bleed.append(outside(pymupdf.Rect(im["bbox"])))
         boxy.append(False)
+        curvy.append(False)
+        strokes.append(0)
+        src.append(im)
     try:
         drawings = page.get_drawings()
     except Exception:
@@ -785,25 +826,54 @@ def find_regions(page: pymupdf.Page, lines: list[Line], imgs: list, table_rects,
         native.append(0)
         flat.append(all(it[0] in ("re", "qu", "l") for it in d["items"]))
         boxy.append(all(it[0] in ("re", "qu") for it in d["items"]))
+        curvy.append(any(it[0] == "c" for it in d["items"]))
+        strokes.append(len(d["items"]))
         bleed.append(outside(r0))
+        src.append(None)
     # piezas decorativas (lisas o degradadas que sangran o quedan bajo texto corrido): fuera antes
     # de agrupar, para que no arrastren a un icono o a un recuadro vecino
     keep = [i for i in range(len(rects))
             if not (flat[i] and (bleed[i] or (raster[i] and _straddled(rects[i], lines))))]
-    rects, raster, native, flat, boxy = ([seq[i] for i in keep] for seq in (rects, raster, native, flat, boxy))
+    rects, raster, native, flat, boxy, src, curvy, strokes = ([seq[i] for i in keep]
+                                              for seq in (rects, raster, native, flat, boxy, src, curvy, strokes))
     if not rects:
         return []
     out = []
+    caplines = _caption_lines(lines)
+    # iconos al margen (TIP, NOTE, WARNING...): piezas pequeñas fuera de la columna de texto. Se
+    # agrupan aparte, antes que el resto, para que no se fundan con un recuadro o filete vecino.
+    prose = [l for l in lines if len(l.text.strip()) > 30]
+    if len(prose) >= 3:
+        text_left, text_right = _pct([l.x0 for l in prose], 0.1), _pct([l.x1 for l in prose], 0.9)
+        margin = [i for i, r in enumerate(rects)
+                  if r.width <= 0.16 * pr.width and (r.x1 <= text_left + 2 or r.x0 >= text_right - 2)]
+        if margin:
+            used: set = set()
+            for mbox, midx in _components([rects[i] for i in margin]):
+                for ibox, iidx in _split_stack([rects[i] for i in margin], midx):
+                    real = [margin[i] for i in iidx]
+                    if ibox.width >= 12 and ibox.height >= 12 and not all(flat[i] for i in real):
+                        out.append((ibox, any(raster[i] for i in real), None, None, "icon"))
+                        used.update(real)
+            # lo que no resultó ser un icono (parte de una figura que asoma al margen) sigue su curso
+            rest = [i for i in range(len(rects)) if i not in used]
+            rects, raster, native, flat, boxy, src, curvy, strokes = ([seq[i] for i in rest]
+                                                      for seq in (rects, raster, native, flat, boxy, src, curvy, strokes))
     for bbox, idxs in _components(rects):
-        if bbox.width < 40 or bbox.height < 30:
+        # estrecho o bajo: solo es figura si es un dibujo denso (un mecanismo, un esquema a mano alzada)
+        dense = min(bbox.width, bbox.height) >= 20 and sum(strokes[i] for i in idxs) >= 60
+        if (bbox.width < 40 or bbox.height < 30) and not dense:
             continue
         if all(flat[i] for i in idxs) and (_straddled(bbox, lines) or _text_box(bbox, lines, body)
                                            or _code_box(bbox, lines, all(boxy[i] for i in idxs), pr.width)):
             continue
         has_raster = any(raster[i] for i in idxs)
-        if bbox.width * bbox.height < 0.015 * parea and not has_raster:
+        # pequeño y sin detalle (filete, marco suelto): fuera. Un dibujo pequeño con curvas o muchas
+        # piezas (un mecanismo, un esquema) sí es una figura
+        detailed = len(idxs) >= 12 or sum(curvy[i] for i in idxs) >= 3 or dense
+        if bbox.width * bbox.height < 0.015 * parea and not has_raster and not detailed:
             continue
-        bbox = _grow(bbox, lines, body)
+        bbox = _grow(bbox, [l for l in lines if id(l) not in caplines], body)
         if bbox.width > 0.92 * pr.width and bbox.height > 0.85 * pr.height:
             continue
         if any((bbox & t).get_area() > 0.5 * bbox.get_area() for t in table_rects):
@@ -813,11 +883,88 @@ def find_regions(page: pymupdf.Page, lines: list[Line], imgs: list, table_rects,
         if nchars > 500 and not has_raster:       # recuadro con texto corrido, no una figura
             continue
         nd = [native[i] for i in idxs if raster[i] and native[i]]
-        out.append((bbox, has_raster, max(nd) if nd else None))
+        # una sola imagen que ocupa toda la región: se pueden usar sus píxeles originales
+        sole = None
+        if len(idxs) == 1 and raster[idxs[0]] and src[idxs[0]] is not None and not inside:
+            ib = pymupdf.Rect(src[idxs[0]]["bbox"])
+            t = src[idxs[0]].get("transform") or (1, 0, 0, 1, 0, 0)
+            if (abs(t[1]) < 1e-3 and abs(t[2]) < 1e-3 and t[0] > 0 and t[3] > 0
+                    and ib.get_area() >= 0.9 * bbox.get_area() and (bbox & ib).get_area() >= 0.98 * ib.get_area()):
+                sole = src[idxs[0]]
+        out.append((bbox, has_raster, max(nd) if nd else None, sole, "fig"))
+    # al crecer para incluir sus etiquetas, una figura puede invadir la de debajo (gráficas en
+    # rejilla): se recorta donde empieza la otra para no duplicar trozos
+    figs = sorted((i for i, o in enumerate(out) if o[4] == "fig"), key=lambda i: out[i][0].y0)
+    for i in figs:
+        top = out[i][0]
+        for j in figs:
+            low = out[j][0]
+            if (j != i and low.y0 > top.y0 + 5 and low.y0 < top.y1 and low.x0 < top.x1 and low.x1 > top.x0
+                    and low.y0 - top.y0 > 30):
+                top = pymupdf.Rect(top.x0, top.y0, top.x1, low.y0 - 1)
+        out[i] = (top,) + out[i][1:]
+    return out
+
+
+def _caption_lines(lines: list[Line]) -> set:
+    """Líneas que forman un pie de figura ("Figura 3.1. ..." y sus líneas siguientes): una figura
+    no debe tragarse la última línea corta de su pie como si fuera una etiqueta."""
+    out: set = set()
+    cur = None
+    for l in sorted(lines, key=lambda l: (l.y0, l.x0)):
+        t = l.text.strip()
+        if CAPTION_RE.match(t) and re.match(r"^\S+\s*\d", t):
+            cur = l
+            out.add(id(l))
+        elif (cur is not None and abs(l.size - cur.size) < 0.3 and abs(l.x0 - cur.x0) < 2 * l.size
+              and 0 < l.base - cur.base <= 1.7 * l.size):
+            cur = l
+            out.add(id(l))
+        else:
+            cur = None
+    return out
+
+
+def _split_stack(rects, idxs, gap: float = 4.0):
+    """Separa iconos apilados en el margen que el agrupado unió: corta por huecos verticales."""
+    order = sorted(idxs, key=lambda i: rects[i].y0)
+    groups: list[list[int]] = []
+    bottom = None
+    for i in order:
+        if bottom is None or rects[i].y0 > bottom + gap:
+            groups.append([])
+            bottom = rects[i].y1
+        groups[-1].append(i)
+        bottom = max(bottom, rects[i].y1)
+    out = []
+    for g in groups:
+        box = pymupdf.Rect(rects[g[0]])
+        for i in g[1:]:
+            box |= rects[i]
+        # fila baja (la etiqueta «TIP», «REMEMBER»... dibujada con trazos) pegada debajo de un icono
+        if out and box.height < 14 and box.y0 - out[-1][0].y1 < 12 and box.width <= out[-1][0].width * 1.6:
+            out[-1] = (out[-1][0] | box, out[-1][1] + g)
+            continue
+        out.append((box, g))
     return out
 
 
 # --------------------------------------------------------------------------- análisis principal
+def _zone_rows(lines: list[Line], H: float) -> dict:
+    """Texto de cada fila de cabecera/pie (líneas a la misma altura unidas): el folio y el título
+    corrido suelen venir en líneas separadas ("1.2 Robot Mechanical Structure" ... "13")."""
+    rows: dict = collections.defaultdict(list)
+    for l in lines:
+        if l.y1 < 0.12 * H or l.y0 > 0.88 * H:
+            rows[round(l.base / 2)].append(l)
+    out = {}
+    for ls in rows.values():
+        t = re.sub(r"\s+", " ", " ".join(x.text.strip() for x in sorted(ls, key=lambda x: x.x0))).strip()
+        for x in ls:
+            out[id(x)] = t
+    return out
+
+
 def analyze(doc: pymupdf.Document, opts: Opts, progress=None):
     ctx = Ctx(doc, opts)
     n = doc.page_count
@@ -917,12 +1064,13 @@ def analyze(doc: pymupdf.Document, opts: Opts, progress=None):
             if info.mode != "text":
                 continue
             H = doc[info.pno].rect.height
+            row = _zone_rows(info.lines, H)
             for l in info.lines:
                 z = "t" if l.y1 < 0.12 * H else "b" if l.y0 > 0.88 * H else None
                 if z:
                     key = (z, re.sub(r"\d+", "#", l.text.strip().lower()))
                     zone_pages[key].add(info.pno)
-                    if NUMBERED_RE.search(re.sub(r"\s+", " ", l.text.strip())):
+                    if NUMBERED_RE.search(row[id(l)]):
                         band_pages[(z, round(l.base))].add(info.pno)
         thr = max(3, int(0.25 * n))
         drop_keys = {k for k, v in zone_pages.items() if len(v) >= thr and k[1]}
@@ -955,13 +1103,14 @@ def analyze(doc: pymupdf.Document, opts: Opts, progress=None):
         lines = info.lines
         # cabeceras/pies y números de página
         keep = []
+        row = _zone_rows(lines, pr.height)
         for l in lines:
             z = "t" if l.y1 < 0.12 * pr.height else "b" if l.y0 > 0.88 * pr.height else None
             if z and not opts.keep_headers:
                 t = l.text.strip()
                 if (z, re.sub(r"\d+", "#", t.lower())) in drop_keys or PAGE_NUM_RE.match(t):
                     continue
-                if NUMBERED_RE.search(re.sub(r"\s+", " ", t)) and any(abs(l.base - y) <= 2 for y in drop_bands[z]):
+                if NUMBERED_RE.search(row[id(l)]) and any(abs(l.base - y) <= 2 for y in drop_bands[z]):
                     continue
             keep.append(l)
         lines = attach_markers(drop_glyph_dupes(keep))
@@ -974,10 +1123,13 @@ def analyze(doc: pymupdf.Document, opts: Opts, progress=None):
             for tab in page.find_tables().tables:
                 rows = tab.extract()
                 r = pymupdf.Rect(tab.bbox)
-                # una "celda" con texto corrido largo es un recuadro alrededor de prosa, no una tabla
+                # una "celda" con texto corrido largo es un recuadro alrededor de prosa, no una tabla;
+                # una rejilla casi vacía son las barras y guías de una gráfica: va como dibujo
+                cells = [c for row in rows for c in row]
+                empty = sum(1 for c in cells if not (c or "").strip()) / max(len(cells), 1)
                 if (len(rows) >= 2 and rows and len(rows[0]) >= 2 and r.width > 0.2 * pr.width
-                        and any(c and c.strip() for row in rows for c in row)
-                        and max(len(c or "") for row in rows for c in row) <= 300):
+                        and any(c and c.strip() for c in cells) and empty < 0.85
+                        and max(len(c or "") for c in cells) <= 300):
                     table_rects.append(r)
                     table_items.append((r, rows, tab))
         except Exception as e:
@@ -1028,10 +1180,17 @@ def analyze(doc: pymupdf.Document, opts: Opts, progress=None):
         # elementos no textuales
         items: list = [("line", l.y0, l.x0, l.col, l) for l in lines]
         tw = geo_all[1] - geo_all[0]
-        for r, has_raster, nat in regions:
+        for r, has_raster, nat, sole, rkind in regions:
             if info.ocr:
                 continue
-            res = images.render_clip(page, r, opts, nat)
+            if rkind == "icon":
+                res = images.render_icon(page, r, opts)
+                if res:
+                    blk = Block("img", page=pno, asset=ctx.add_asset(*res), alt="Icono", cls="icon")
+                    # antes de la primera línea que tiene al lado
+                    items.append(("obj", r.y0 - 0.6 * ctx.body, -1, 0 if g is None else (0 if r.x1 <= g else 1), blk))
+                continue
+            res = images.render_clip(page, r, opts, nat, sole)
             if res:
                 a = ctx.add_asset(*res)
                 blk = Block("img", page=pno, asset=a, alt=f"Figura (página {pno + 1})",
@@ -1061,8 +1220,10 @@ def analyze(doc: pymupdf.Document, opts: Opts, progress=None):
         foot: list[Line] = []
         main_items = items
         tail = []
+        caps = _caption_lines(lines)      # un pie de figura al final de la página no es una nota
         for it in reversed(items):
-            if it[0] == "line" and it[4].size <= ctx.body * 0.9 and it[4].y0 > 0.55 * pr.height:
+            if (it[0] == "line" and it[4].size <= ctx.body * 0.9 and it[4].y0 > 0.55 * pr.height
+                    and id(it[4]) not in caps):
                 tail.append(it)
             else:
                 break

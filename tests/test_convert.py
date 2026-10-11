@@ -92,3 +92,95 @@ def test_bullet_glyph_duplicates_and_loose_markers():
              _line("1.", 86, 101, 100, size=14.0), _line("Choose software vendors", 108, 300, 100)]
     out = attach_markers(drop_glyph_dupes(lines))
     assert [l.text for l in out] == ["» LLMs as engines", "1. Choose software vendors"]
+
+
+def _lowres_art():
+    from PIL import Image, ImageDraw
+    im = Image.new("RGB", (240, 140), "white")
+    d = ImageDraw.Draw(im)
+    for k in range(0, 240, 12):
+        d.line([(k, 0), (k + 100, 140)], fill=(20, 40, 160), width=2)
+    d.text((10, 10), "MCU 36", fill="black")
+    return im
+
+
+def _figures_pdf(path):
+    """Página con un icono vectorial al margen y una figura incrustada a baja resolución (~70 ppp)."""
+    import io
+    import pymupdf
+    from PIL import Image, ImageDraw
+    doc = pymupdf.open()
+    page = doc.new_page(width=420, height=595)
+    para = ("Los iconos del margen señalan consejos y advertencias que acompañan al texto; si se pierden, "
+            "el lector no sabe qué tipo de nota está leyendo. ") * 3
+    page.insert_textbox(pymupdf.Rect(90, 60, 370, 200), para, fontsize=10, align=3)
+    page.draw_circle((62, 75), 14, color=(0, 0, 0), fill=(1, 0.9, 0), width=1.5)   # icono «TIP»
+    page.draw_bezier((55, 70), (60, 60), (66, 60), (70, 72), color=(0, 0, 0), width=1.2)
+    buf = io.BytesIO()
+    _lowres_art().save(buf, "PNG")
+    page.insert_image(pymupdf.Rect(90, 230, 370, 393), stream=buf.getvalue())   # 240 px en 280 pt
+    page.insert_textbox(pymupdf.Rect(90, 410, 370, 520), para, fontsize=10, align=3)
+    doc.save(path)
+
+
+@pytest.fixture(scope="module")
+def figures_epub(tmp_path_factory):
+    d = tmp_path_factory.mktemp("f")
+    _figures_pdf(str(d / "fig.pdf"))
+    out = d / "fig.epub"
+    convert(str(d / "fig.pdf"), str(out), Opts())
+    return out
+
+
+def test_margin_icon_kept(figures_epub):
+    xhtml = text_of(figures_epub)
+    assert '<figure class="icon">' in xhtml
+    # el icono va delante del párrafo que señala
+    assert xhtml.index('class="icon"') < xhtml.index("Los iconos del margen")
+
+
+def test_low_res_figure_is_smoothed_not_blocky(figures_epub):
+    import io
+    from PIL import Image, ImageChops, ImageStat
+    z = zipfile.ZipFile(figures_epub)
+    name = re.search(r'<figure><img src="\.\./images/([^"]+)"', text_of(figures_epub)).group(1)
+    got = Image.open(io.BytesIO(z.read("OEBPS/images/" + name))).convert("L")
+    assert got.width >= 240                       # nunca por debajo de los píxeles originales
+    # debe parecerse al original ampliado con Lanczos; el redibujado de MuPDF (vecino más próximo)
+    # deja escalones que se alejan mucho de esa referencia
+    ref = _lowres_art().convert("L").resize(got.size, Image.LANCZOS)
+    assert ImageStat.Stat(ImageChops.difference(got, ref)).mean[0] < 3
+
+
+def _stacked_figures_pdf(path):
+    """Cabecera corrida con el folio en otra línea y dos figuras apiladas, cada una con su pie debajo."""
+    import pymupdf
+    doc = pymupdf.open()
+    body = ("El robot se desplaza sobre ruedas fijas y orientables; la tracción y la dirección se reparten "
+            "entre motores distintos según la configuración elegida para el vehículo. ") * 4
+    for k in range(5):
+        page = doc.new_page(width=440, height=666)
+        page.insert_text((224, 42), "1.2 Estructura mecánica", fontsize=9)
+        page.insert_text((378, 42), str(13 + k), fontsize=9)
+        if k == 2:
+            for y0, cap in ((54, "Fig. 1.15. Un robot móvil triciclo"), (160, "Fig. 1.16. Un robot móvil tipo coche")):
+                page.draw_rect(pymupdf.Rect(170, y0, 270, y0 + 70), color=(0, 0, 0), width=1)
+                page.draw_circle((195, y0 + 55), 10, color=(0, 0, 0), width=1)
+                page.draw_circle((245, y0 + 55), 10, color=(0, 0, 0), width=1)
+                page.draw_bezier((175, y0 + 30), (200, y0 + 5), (240, y0 + 5), (265, y0 + 30), color=(0, 0, 0))
+                page.insert_text((150, y0 + 84), cap, fontsize=9)
+            page.insert_textbox(pymupdf.Rect(53, 270, 387, 600), body, fontsize=10, align=3)
+        else:
+            page.insert_textbox(pymupdf.Rect(53, 60, 387, 600), body + body, fontsize=10, align=3)
+    doc.save(path)
+
+
+def test_stacked_figures_keep_their_captions_and_header_dropped(tmp_path):
+    _stacked_figures_pdf(str(tmp_path / "s.pdf"))
+    convert(str(tmp_path / "s.pdf"), str(tmp_path / "s.epub"), Opts())
+    xhtml = text_of(tmp_path / "s.epub")
+    assert "Estructura mecánica" not in xhtml                 # cabecera corrida fuera
+    figs = re.findall(r"<figure>.*?</figure>", xhtml, re.S)
+    caps = [re.sub(r"<[^>]+>", "", re.search(r"<figcaption>(.*?)</figcaption>", f, re.S).group(1))
+            for f in figs if "<figcaption>" in f]
+    assert caps == ["Fig. 1.15. Un robot móvil triciclo", "Fig. 1.16. Un robot móvil tipo coche"]
