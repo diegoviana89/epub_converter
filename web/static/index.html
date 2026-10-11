@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PDF a EPUB para Kindle</title>
+<meta name="description" content="Convierte tus PDF en EPUB legibles en Kindle: texto justificado, sin cabeceras ni números de página, con índice e imágenes nítidas.">
+<style>
+  :root {
+    --bg: #fafaf8; --fg: #1c1c1a; --muted: #6b6b66; --line: #e4e3df;
+    --soft: #f1f0ec; --accent: #2f5d50; --on-accent: #ffffff; --err: #a33a2b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #151514; --fg: #e8e7e3; --muted: #9a9993; --line: #2c2c2a;
+            --soft: #1f1f1d; --accent: #8fc1b0; --on-accent: #10201b; --err: #e58b7c; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 17px/1.6 ui-serif, Georgia, "Times New Roman", serif;
+  }
+  main { max-width: 640px; margin: 0 auto; padding: 72px 16px 96px; }
+  h1, h2, button, label, select, input, .ui {
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  h1 { font-size: 2rem; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 8px; }
+  h2 { font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em;
+       color: var(--muted); margin: 64px 0 16px; }
+  p { margin: 0 0 16px; }
+  .lead { color: var(--muted); font-size: 1.15rem; margin-bottom: 40px; }
+  a { color: var(--accent); }
+
+  /* Zona de subida */
+  .drop {
+    display: block; border: 1.5px dashed var(--line); border-radius: 12px;
+    padding: 44px 20px; text-align: center; cursor: pointer; transition: border-color .15s, background .15s;
+  }
+  .drop:hover, .drop.over { border-color: var(--accent); background: var(--soft); }
+  .drop strong { display: block; font-size: 1.05rem; font-weight: 600; }
+  .drop span { color: var(--muted); font-size: 0.88rem; }
+  .drop input { display: none; }
+  .file { font-weight: 600; word-break: break-all; }
+
+  details { margin-top: 16px; font-size: 0.92rem; }
+  summary { cursor: pointer; color: var(--muted); font-family: ui-sans-serif, system-ui, sans-serif; }
+  .opts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 20px; padding-top: 16px; }
+  @media (max-width: 560px) { .opts { grid-template-columns: 1fr; } }
+  .opts .label { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 4px; }
+  input[type=text], select {
+    width: 100%; font-size: 0.9rem; padding: 8px 10px; color: var(--fg);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+  }
+  input[type=text]:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .check { display: flex; gap: 8px; align-items: baseline; cursor: pointer; }
+  .check small { display: block; color: var(--muted); font-size: 0.8rem; }
+
+  .go {
+    width: 100%; margin-top: 24px; padding: 14px; font-size: 1rem; font-weight: 600;
+    border: 0; border-radius: 10px; background: var(--accent); color: var(--on-accent); cursor: pointer;
+  }
+  .go:disabled { opacity: .45; cursor: default; }
+
+  .status { margin-top: 20px; font-size: 0.92rem; min-height: 1.6em; }
+  .status.err { color: var(--err); }
+  .bar { height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; margin-top: 8px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .bar.busy i { width: 35%; animation: slide 1.2s ease-in-out infinite; }
+  @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+  .done { display: inline-block; margin-top: 8px; font-weight: 600; }
+
+  dl { margin: 0; }
+  dt { font-family: ui-sans-serif, system-ui, sans-serif; font-weight: 600; font-size: 0.95rem; margin-top: 18px; }
+  dd { margin: 4px 0 0; color: var(--muted); }
+  ol { padding-left: 20px; }
+  ol li { margin-bottom: 8px; }
+
+  footer { margin-top: 80px; padding-top: 20px; border-top: 1px solid var(--line);
+           color: var(--muted); font-size: 0.85rem; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>PDF a EPUB para Kindle</h1>
+  <p class="lead">Sube un PDF y descarga un EPUB que se lee bien en el Kindle: texto justificado, sin cabeceras ni números de página, con índice e imágenes nítidas.</p>
+
+  <form id="form">
+    <label class="drop" id="drop">
+      <input type="file" id="pdf" accept="application/pdf,.pdf">
+      <strong id="dropTitle">Elige un PDF o arrástralo aquí</strong>
+      <span id="dropHint">Hasta 50 MB</span>
+    </label>
+
+    <details>
+      <summary>Opciones</summary>
+      <div class="opts">
+        <div>
+          <span class="label">Tipo de documento</span>
+          <select id="mode">
+            <option value="reflow">Libro con texto (recomendado)</option>
+            <option value="pages">Cómic, partitura o fórmulas (páginas como imagen)</option>
+          </select>
+        </div>
+        <div>
+          <span class="label">Tablas</span>
+          <select id="tables">
+            <option value="image">Como imagen nítida</option>
+            <option value="html">Como texto</option>
+          </select>
+        </div>
+        <div>
+          <span class="label">Título (opcional)</span>
+          <input type="text" id="title" maxlength="200">
+        </div>
+        <div>
+          <span class="label">Autor (opcional)</span>
+          <input type="text" id="author" maxlength="200">
+        </div>
+        <label class="check" id="ocrWrap" hidden><input type="checkbox" id="ocr"> <span>Es un escaneo<small>Reconoce el texto con OCR (más lento)</small></span></label>
+        <label class="check"><input type="checkbox" id="keep"> <span>Conservar cabeceras y pies<small>Por defecto se eliminan</small></span></label>
+      </div>
+    </details>
+
+    <button class="go" id="go" type="submit" disabled>Convertir</button>
+
+    <div class="status ui" id="status" aria-live="polite"></div>
+    <div class="bar" id="bar" hidden><i></i></div>
+  </form>
+
+  <h2>Qué hace</h2>
+  <dl>
+    <dt>Texto justificado y sin huecos</dt>
+    <dd>Une las líneas en párrafos de verdad y quita los guiones de fin de línea. El Kindle justifica con tu fuente y tu tamaño.</dd>
+    <dt>Sin cabeceras ni números de página en medio</dt>
+    <dd>Detecta lo que se repite en cada página y lo elimina.</dd>
+    <dt>Columnas y notas al pie en su sitio</dt>
+    <dd>Respeta el orden de lectura en dos columnas y mueve las notas al final del párrafo.</dd>
+    <dt>Imágenes, gráficos y tablas nítidos</dt>
+    <dd>Se pueden ampliar en el Kindle con pulsación larga o doble toque.</dd>
+    <dt>Índice navegable</dt>
+    <dd>Usa los marcadores del PDF o, si no hay, los títulos que detecta.</dd>
+  </dl>
+
+  <h2>Enviar al Kindle</h2>
+  <ol>
+    <li>Sube el <code>.epub</code> con <a href="https://www.amazon.com/sendtokindle" rel="noopener">Enviar a Kindle</a> o mándalo a tu correo <code>@kindle.com</code>.</li>
+    <li>En el Kindle, abre <strong>Aa → Diseño</strong> y activa <strong>Justificar</strong> y <strong>Guionado</strong>.</li>
+  </ol>
+
+  <h2>Si el resultado no te convence</h2>
+  <dl>
+    <dt>Maquetación desordenada, fórmulas o partituras rotas</dt>
+    <dd>Vuelve a convertir con el tipo «páginas como imagen».</dd>
+    <dt>Salen páginas como imagen en un libro de texto</dt>
+    <dd>Esas páginas no tenían texto legible en el PDF. Si es un escaneo, activa el OCR.</dd>
+  </dl>
+
+  <footer>Tus archivos solo se usan para la conversión y se borran del servidor en cuanto termina.</footer>
+</main>
+
+<script>
+  const $ = id => document.getElementById(id);
+  let maxMB = 50, file = null, url = null;
+
+  fetch("api/config").then(r => r.json()).then(c => {
+    maxMB = c.max_mb;
+    $("dropHint").textContent = `Hasta ${c.max_mb} MB y ${c.max_pages} páginas`;
+    $("ocrWrap").hidden = !c.ocr;
+  }).catch(() => {});
+
+  function status(msg, err = false) {
+    $("status").textContent = msg;
+    $("status").classList.toggle("err", err);
+  }
+
+  function pick(f) {
+    if (!f) return;
+    if (!/\.pdf$/i.test(f.name) && f.type !== "application/pdf") return status("Ese archivo no es un PDF.", true);
+    if (f.size > maxMB * 1048576) return status(`El archivo supera el máximo de ${maxMB} MB.`, true);
+    file = f;
+    $("dropTitle").innerHTML = "";
+    const s = document.createElement("span"); s.className = "file"; s.textContent = f.name;
+    $("dropTitle").append(s);
+    $("dropHint").textContent = `${(f.size / 1048576).toFixed(1)} MB · pulsa para cambiarlo`;
+    $("go").disabled = false;
+    status("");
+  }
+
+  $("pdf").addEventListener("change", e => pick(e.target.files[0]));
+  const drop = $("drop");
+  ["dragenter", "dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", e => pick(e.dataTransfer.files[0]));
+
+  $("form").addEventListener("submit", e => {
+    e.preventDefault();
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("pdf", file);
+    fd.append("mode", $("mode").value);
+    fd.append("tables", $("tables").value);
+    fd.append("title", $("title").value);
+    fd.append("author", $("author").value);
+    if ($("ocr").checked) fd.append("ocr", "1");
+    if ($("keep").checked) fd.append("keep_headers", "1");
+
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "api/convert");
+    xhr.responseType = "blob";
+    const bar = $("bar"), fill = bar.querySelector("i");
+    bar.hidden = false; bar.classList.remove("busy"); fill.style.width = "0";
+    $("go").disabled = true;
+    status("Subiendo…");
+
+    xhr.upload.onprogress = ev => {
+      if (ev.lengthComputable) fill.style.width = (ev.loaded / ev.total * 100) + "%";
+    };
+    xhr.upload.onload = () => {
+      fill.style.width = ""; bar.classList.add("busy");
+      status("Convirtiendo… puede tardar un par de minutos en libros largos.");
+    };
+    xhr.onload = async () => {
+      bar.hidden = true; $("go").disabled = false;
+      if (xhr.status === 200) {
+        const m = /filename\*?=(?:UTF-8'')?"?([^";]+)/i.exec(xhr.getResponseHeader("Content-Disposition") || "");
+        const name = m ? decodeURIComponent(m[1]) : "libro.epub";
+        if (url) URL.revokeObjectURL(url);
+        url = URL.createObjectURL(xhr.response);
+        const a = document.createElement("a");
+        a.href = url; a.download = name; a.className = "done"; a.textContent = `Descargar ${name}`;
+        status("Listo. ");
+        $("status").append(a);
+        a.click();
+      } else {
+        let msg = "No se pudo convertir el PDF.";
+        try { msg = JSON.parse(await xhr.response.text()).error || msg; } catch {}
+        status(msg, true);
+      }
+    };
+    xhr.onerror = () => {
+      bar.hidden = true; $("go").disabled = false;
+      status("Se perdió la conexión con el servidor. Inténtalo de nuevo.", true);
+    };
+    xhr.send(fd);
+  });
+</script>
+</body>
+</html>
