@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PDF a EPUB para Kindle</title>
+<title>EpubTailor · PDF a EPUB para Kindle</title>
 <meta name="description" content="Convierte tus PDF en EPUB legibles en Kindle: texto justificado, sin cabeceras ni números de página, con índice e imágenes nítidas.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -48,9 +48,8 @@
 
   /* Navegación */
   nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 28px 0 20px; }
-  .brand { display: flex; align-items: center; gap: 8px; text-decoration: none; color: var(--fg); font-weight: 700; }
-  .brand .tag { padding: 5px 10px; font-size: 12px; }
-  .brand .arrow { color: var(--soft); font-weight: 400; }
+  .brand { display: flex; align-items: center; }
+  .brand img { display: block; height: 34px; width: auto; }
   .links { display: flex; gap: 10px 20px; flex-wrap: wrap; font-size: 15px; }
   .links a { color: oklch(0.35 0.03 125); text-decoration: none; white-space: nowrap; }
   .links a:hover { color: var(--epub); }
@@ -236,7 +235,7 @@
 <body>
 <div class="wrap">
   <nav>
-    <a class="brand" href="#" aria-label="PDF a EPUB, inicio"><span class="tag pdf">PDF</span><span class="arrow">→</span><span class="tag epub">EPUB</span></a>
+    <a class="brand" href="#"><img src="img/epubtailor-logo.svg" alt="EpubTailor" width="160" height="34"></a>
     <div class="links">
       <a href="#como">Cómo funciona</a>
       <a href="#ejemplos">Ejemplos</a>
@@ -449,7 +448,7 @@
 
 <footer>
   <div class="wrap"><div>
-    <span>PDF a EPUB para Kindle</span>
+    <span>EpubTailor · PDF a EPUB para Kindle</span>
     <span>Tus archivos se borran del servidor en cuanto termina la conversión.</span>
   </div></div>
 </footer>
