@@ -40,7 +40,15 @@ Opciones útiles:
 
 ## Enviar al Kindle
 
-Usa **Enviar a Kindle** (web, app o correo `@kindle.com`) con el `.epub`, o cópialo por USB con Calibre. Amazon lo convierte a su formato interno; el justificado y el guionado se controlan en el Kindle: *Aa → Diseño → Justificar* y *Guionado* activados.
+Usa **Enviar a Kindle** con el `.epub`, o cópialo por USB con Calibre. Límites de Amazon (pueden cambiar):
+
+| Vía | Tamaño máximo |
+|---|---|
+| Web [Enviar a Kindle](https://www.amazon.com/sendtokindle) | 200 MB por archivo |
+| App *Send to Kindle* (PC o móvil) | 50 MB |
+| Correo a tu dirección `@kindle.com` | 50 MB por correo |
+
+Gmail no adjunta archivos de más de 25 MB (los convierte en un enlace de Drive, que Amazon no acepta), y Outlook se queda en 20 MB: para EPUB grandes usa la web.
 
 ## Pruebas
 
