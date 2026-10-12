@@ -120,6 +120,8 @@
   .result p.warn { color: var(--warn); }
 
   /* Cómo funciona */
+  h2.with-intro { margin-bottom: 16px; }
+  .intro { font-family: var(--serif); font-size: 19px; line-height: 1.55; margin: 0 0 36px; max-width: 620px; color: oklch(0.38 0.03 125); text-wrap: pretty; }
   .grid4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
   .steps { gap: 16px; margin: 0; padding: 0; list-style: none; }
   .steps li { border-radius: 28px; padding: 28px 24px 30px; display: flex; flex-direction: column; gap: 10px; background: var(--bg-s); }
@@ -291,7 +293,8 @@
 </div>
 
 <section class="wrap sec" id="como">
-  <h2>Cómo funciona</h2>
+  <h2 class="with-intro">Cómo funciona</h2>
+  <p class="intro">No tienes que instalar nada: la conversión se hace en nuestro servidor, no en tu equipo. Funciona desde el navegador del ordenador, la tablet o el móvil, cuando lo necesites y estés donde estés.</p>
   <ol class="grid4 steps">
     <li style="--bg-s: oklch(0.93 0.04 55); --ink-s: oklch(0.5 0.09 40)"><span class="n">1</span><strong>Sube tu PDF</strong><span>Arrástralo o elígelo desde tu equipo.</span></li>
     <li style="--bg-s: oklch(0.95 0.045 95); --ink-s: oklch(0.5 0.08 85)"><span class="n">2</span><strong>Conviértelo</strong><span>Tarda de segundos a un par de minutos.</span></li>
