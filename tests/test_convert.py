@@ -184,3 +184,39 @@ def test_stacked_figures_keep_their_captions_and_header_dropped(tmp_path):
     caps = [re.sub(r"<[^>]+>", "", re.search(r"<figcaption>(.*?)</figcaption>", f, re.S).group(1))
             for f in figs if "<figcaption>" in f]
     assert caps == ["Fig. 1.15. Un robot móvil triciclo", "Fig. 1.16. Un robot móvil tipo coche"]
+
+
+def _booktabs_pdf(path):
+    """Tabla sin rejilla (estilo booktabs): título encima y tres filetes horizontales."""
+    import pymupdf
+    doc = pymupdf.open()
+    page = doc.new_page(width=440, height=666)
+    text = ("Los parámetros de cada articulación se resumen en la tabla siguiente, que el lector debe poder "
+            "consultar con sus filas y columnas intactas. ") * 3
+    page.insert_textbox(pymupdf.Rect(53, 60, 387, 160), text, fontsize=10, align=3)
+    page.insert_text((105, 190), "Tabla 2.1. Parámetros del brazo plano", fontsize=9)
+    for y in (199, 212, 250):
+        page.draw_line((53, y), (387, y), width=0.5)
+    for k, row in enumerate((("Enlace", "ai", "alfa", "theta"), ("1", "a1", "0", "t1"), ("2", "a2", "0", "t2"))):
+        for x, cell in zip((60, 150, 240, 330), row):
+            page.insert_text((x, 209 + 13 * k + (2 if k else 0)), cell, fontsize=9)
+    page.insert_textbox(pymupdf.Rect(53, 270, 387, 400), text, fontsize=10, align=3)
+    doc.save(path)
+
+
+@pytest.mark.parametrize("mode", ["image", "html"])
+def test_booktabs_table_kept_as_table(tmp_path, mode):
+    _booktabs_pdf(str(tmp_path / "t.pdf"))
+    convert(str(tmp_path / "t.pdf"), str(tmp_path / "t.epub"), Opts(tables=mode))
+    xhtml = text_of(tmp_path / "t.epub")
+    paras = [re.sub(r"<[^>]+>", "", p).strip() for p in re.findall(r"<p[^>]*>(.*?)</p>", xhtml, re.S)]
+    assert not any(p in ("a1", "a2", "Enlace") or p.startswith(("Enlace", "1 a1")) for p in paras)
+    if mode == "image":
+        assert re.search(r"<figure><figcaption><strong>Tabla 2\.1\.</strong>[^<]*</figcaption><img", xhtml) or \
+            re.search(r"<figure><figcaption>Tabla 2\.1\.[^<]*</figcaption><img", xhtml)
+    else:
+        table = re.search(r"<table>.*?</table>", xhtml, re.S).group(0)
+        assert "<caption>" in table and "Tabla 2.1." in table
+        rows = [[re.sub(r"<[^>]+>", "", c) for c in re.findall(r"<t[hd]>(.*?)</t[hd]>", r)]
+                for r in re.findall(r"<tr>(.*?)</tr>", table)]
+        assert rows == [["Enlace", "ai", "alfa", "theta"], ["1", "a1", "0", "t1"], ["2", "a2", "0", "t2"]]

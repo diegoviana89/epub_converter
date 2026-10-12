@@ -47,6 +47,7 @@ div.page img { max-width: 100%; max-height: 100%; }
 table { border-collapse: collapse; margin: 1em auto; font-size: .9em; }
 td, th { border: 1px solid #888; padding: .25em .45em; text-align: left; vertical-align: top; }
 th { font-weight: bold; }
+caption { font-size: .85em; text-align: left; caption-side: top; margin-bottom: .3em; }
 code { font-family: monospace; font-size: .92em; }
 pre { font-family: monospace; font-size: .8em; line-height: 1.3; text-align: left; white-space: pre-wrap;
       hyphens: none; -webkit-hyphens: none; margin: .7em 0; padding: .4em .5em; border-left: 2px solid #999; }
@@ -251,6 +252,8 @@ def _block_html(b: Block, assets: list[Asset]) -> str:
         lv = max(1, min(b.level or 2, 4))
         return f"<h{lv}{idattr}>{b.html}</h{lv}>"
     if b.kind == "table":
+        if b.caption:                  # el título de la tabla, dentro de ella
+            return b.html.replace("<table>", f"<table><caption>{b.caption}</caption>", 1)
         return b.html
     if b.kind == "code":
         return f"<pre{idattr}><code>{b.html}</code></pre>"

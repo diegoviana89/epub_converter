@@ -1134,6 +1134,10 @@ def analyze(doc: pymupdf.Document, opts: Opts, progress=None):
                     table_items.append((r, rows, tab))
         except Exception as e:
             log.debug("find_tables falló en pág %d: %s", pno + 1, e)
+        for r, rows in rule_tables(page, lines, ctx.body):
+            if not any((r & t).get_area() > 0.3 * r.get_area() for t in table_rects):
+                table_rects.append(r)
+                table_items.append((r, rows, None))
 
         # regiones gráficas
         regions = find_regions(page, lines, info.imgs, table_rects, repeated_xrefs, ctx.body, ctx.flat_cache)
@@ -1266,11 +1270,99 @@ def _title_first(items: list, body: float) -> list:
     return items[k:end] + items[:k] + items[end:]
 
 
+def rule_tables(page: pymupdf.Page, lines: list[Line], body: float):
+    """Tablas sin rejilla (estilo booktabs): dos o más filetes horizontales de la misma anchura con
+    texto en columnas entre ellos. find_tables no las ve porque busca celdas cerradas."""
+    pr = page.rect
+    try:
+        drawings = page.get_drawings()
+    except Exception:
+        return []
+    rules = sorted((pymupdf.Rect(d["rect"]) for d in drawings
+                    if d["rect"].height < 1.5 and d["rect"].width > 0.3 * pr.width), key=lambda r: r.y0)
+    spans: list[list[pymupdf.Rect]] = []
+    for r in rules:                               # filetes con los mismos extremos
+        for sp in spans:
+            if abs(sp[0].x0 - r.x0) < 3 and abs(sp[0].x1 - r.x1) < 3:
+                if r.y0 - sp[-1].y0 > 1:          # ignora dobles trazos
+                    sp.append(r)
+                break
+        else:
+            spans.append([r])
+    out = []
+    for sp in spans:
+        runs: list[list[pymupdf.Rect]] = [[sp[0]]]
+        for r in sp[1:]:
+            if r.y0 - runs[-1][-1].y1 > 0.5 * pr.height:
+                runs.append([r])
+            else:
+                runs[-1].append(r)
+        for run in runs:
+            if len(run) < 2:
+                continue
+            box = pymupdf.Rect(run[0].x0, run[0].y0, run[-1].x1, run[-1].y1)
+            inside = [l for l in lines if box.y0 < l.cy < box.y1 and l.x0 >= box.x0 - 3 and l.x1 <= box.x1 + 3]
+            if (not inside
+                    or any(len(l.text.strip()) > 30 and l.x1 - l.x0 > 0.5 * box.width for l in inside)
+                    or any(_mono_line(l) for l in inside)):
+                continue          # frases o código entre los filetes (recuadros de listados): no es una tabla
+            # filas: solo con el texto de tamaño normal; superíndices y subíndices (que PyMuPDF da
+            # como líneas sueltas a otra altura) van a la fila más cercana
+            big = max(l.size for l in inside)
+            rows: list[list[Line]] = []
+            for l in sorted((l for l in inside if l.size >= 0.85 * big), key=lambda l: l.base):
+                if rows and abs(l.base - rows[-1][0].base) < 0.5 * l.size:
+                    rows[-1].append(l)
+                else:
+                    rows.append([l])
+            for l in inside:
+                if l.size < 0.85 * big and rows:
+                    min(rows, key=lambda row: abs(row[0].cy - l.cy)).append(l)
+            multi = sum(1 for row in rows if len(row) >= 2)
+            if len(rows) < 2 or multi < 0.6 * len(rows):
+                continue
+            # columnas: centros de las piezas agrupados en horizontal
+            centers = sorted((l.x0 + l.x1) / 2 for l in inside)
+            cols = [[centers[0]]]
+            for c in centers[1:]:
+                if c - cols[-1][-1] > 1.2 * body:
+                    cols.append([c])
+                else:
+                    cols[-1].append(c)
+            cx = [sum(c) / len(c) for c in cols]
+            if len(cx) < 2:
+                continue
+            # cada columna debe tener contenido en la mayoría de las filas, como en una tabla de verdad
+            used = [set() for _ in cx]
+            for n, row in enumerate(rows):
+                for l in row:
+                    used[min(range(len(cx)), key=lambda k: abs(cx[k] - (l.x0 + l.x1) / 2))].add(n)
+            if any(len(u) < 0.5 * len(rows) for u in used):
+                continue
+            matrix = []
+            head_end = run[1].y0 if len(run) >= 3 else None   # el segundo filete cierra la cabecera
+            for row in rows:
+                cells = [""] * len(cx)
+                for l in sorted(row, key=lambda l: l.x0):
+                    if l.size < 0.85 * big:   # índice: a la columna cuya pieza tiene justo a la izquierda
+                        k = min(range(len(cx)), key=lambda k: abs(cx[k] - l.x0))
+                    else:
+                        k = min(range(len(cx)), key=lambda k: abs(cx[k] - (l.x0 + l.x1) / 2))
+                    cells[k] = (cells[k] + " " + l.text.strip()).strip()
+                if head_end is not None and matrix and row[0].cy < head_end:
+                    matrix[0] = [(a + " " + b).strip() for a, b in zip(matrix[0], cells)]   # cabecera en 2 líneas
+                else:
+                    matrix.append(cells)
+            out.append((box + (0, -2, 0, 2), matrix))
+    return out
+
+
 def _table_block(page, r, rows, tab, pno, ctx, tw):
     if ctx.opts.tables == "html":
         out = ["<table>"]
         for i, row in enumerate(rows):
-            tag = "th" if i == 0 and getattr(tab, "header", None) and not tab.header.external else "td"
+            head = tab is None or (getattr(tab, "header", None) and not tab.header.external)
+            tag = "th" if i == 0 and head else "td"
             cells = "".join(f"<{tag}>{esc(clean(c or '').strip())}</{tag}>" for c in row)
             out.append(f"<tr>{cells}</tr>")
         out.append("</table>")
