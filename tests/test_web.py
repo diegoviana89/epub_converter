@@ -78,3 +78,19 @@ def test_pdf_demasiado_grande(client, monkeypatch):
     r = subir(client, b"%PDF-" + b"0" * 4096, Origin=ORIGEN)
     assert r.status_code == 413
     assert r.headers["Access-Control-Allow-Origin"] == ORIGEN  # el error llega legible a la página
+
+
+def test_errores_en_espanol_por_defecto_y_en_ingles_con_lang(client):
+    r = subir(client, b"esto no es un pdf")
+    assert "no es un PDF válido" in r.get_json()["error"]
+    r = client.post("/api/convert?lang=en", data={"pdf": (io.BytesIO(b"esto no es un pdf"), "x.pdf")},
+                    content_type="multipart/form-data")
+    assert r.get_json()["error"] == "The file couldn't be opened: it isn't a valid PDF or it's damaged."
+
+
+def test_pdf_demasiado_grande_en_ingles(client, monkeypatch):
+    monkeypatch.setitem(webapp.app.config, "MAX_CONTENT_LENGTH", 1024)
+    r = client.post("/api/convert?lang=en", data={"pdf": (io.BytesIO(b"%PDF-" + b"0" * 4096), "x.pdf")},
+                    content_type="multipart/form-data")
+    assert r.status_code == 413
+    assert r.get_json()["error"] == f"The file is over the {webapp.MAX_MB} MB limit."

@@ -33,9 +33,45 @@ app = Flask(__name__, static_folder="static", static_url_path="")
 app.config["MAX_CONTENT_LENGTH"] = (MAX_MB + 1) * 1024 * 1024
 log = logging.getLogger("pdf2epub.web")
 
+# Mensajes de error en español (por defecto) o en inglés (?lang=en, lo envía la página).
+MESSAGES = {
+    "es": {
+        "no_pdf": "No se ha recibido ningún PDF.",
+        "bad_opts": "Opciones no válidas.",
+        "no_ocr": "El OCR no está disponible en este servidor.",
+        "not_pdf": "El archivo no es un PDF.",
+        "password": "El PDF está protegido con contraseña.",
+        "too_many_pages": "El PDF tiene {pages} páginas; el máximo es {max}.",
+        "unreadable": "No se pudo abrir el archivo: no es un PDF válido o está dañado.",
+        "internal": "Error interno al convertir el PDF.",
+        "too_large": "El archivo supera el máximo de {mb} MB.",
+    },
+    "en": {
+        "no_pdf": "No PDF was received.",
+        "bad_opts": "Invalid options.",
+        "no_ocr": "OCR isn't available on this server.",
+        "not_pdf": "The file isn't a PDF.",
+        "password": "The PDF is password-protected.",
+        "too_many_pages": "The PDF has {pages} pages; the maximum is {max}.",
+        "unreadable": "The file couldn't be opened: it isn't a valid PDF or it's damaged.",
+        "internal": "Internal error while converting the PDF.",
+        "too_large": "The file is over the {mb} MB limit.",
+    },
+}
+# Errores de usuario de convert() (SystemExit, en español) traducidos al inglés.
+CONVERT_ERRORS_EN = {
+    "El PDF está protegido con contraseña.": MESSAGES["en"]["password"],
+    "No se pudo extraer contenido (¿PDF escaneado? prueba --ocr o --mode pages).":
+        "No content could be extracted (is it a scanned PDF?). Try the “pages as images” document type.",
+}
 
-def _error(msg: str, code: int = 400):
-    return jsonify(error=msg), code
+
+def _lang() -> str:
+    return "en" if request.args.get("lang") == "en" else "es"
+
+
+def _error(key: str, code: int = 400, **fmt):
+    return jsonify(error=MESSAGES[_lang()][key].format(**fmt)), code
 
 
 def _safe_name(filename: str) -> str:
@@ -76,16 +112,16 @@ def config():
 def api_convert():
     f = request.files.get("pdf")
     if not f or not f.filename:
-        return _error("No se ha recibido ningún PDF.")
+        return _error("no_pdf")
     name = _safe_name(f.filename)
 
     mode = request.form.get("mode", "reflow")
     tables = request.form.get("tables", "image")
     if mode not in ("reflow", "pages") or tables not in ("image", "html"):
-        return _error("Opciones no válidas.")
+        return _error("bad_opts")
     ocr = request.form.get("ocr") == "1"
     if ocr and not OCR_AVAILABLE:
-        return _error("El OCR no está disponible en este servidor.")
+        return _error("no_ocr")
 
     opts = Opts(mode=mode, tables=tables, ocr=ocr,
                 keep_headers=request.form.get("keep_headers") == "1",
@@ -99,22 +135,23 @@ def api_convert():
         try:
             with pymupdf.open(pdf_path) as doc:
                 if not doc.is_pdf:
-                    return _error("El archivo no es un PDF.")
+                    return _error("not_pdf")
                 if doc.needs_pass:
-                    return _error("El PDF está protegido con contraseña.")
+                    return _error("password")
                 if doc.page_count > MAX_PAGES:
-                    return _error(f"El PDF tiene {doc.page_count} páginas; el máximo es {MAX_PAGES}.")
+                    return _error("too_many_pages", pages=doc.page_count, max=MAX_PAGES)
         except (pymupdf.FileDataError, RuntimeError):
-            return _error("No se pudo abrir el archivo: no es un PDF válido o está dañado.")
+            return _error("unreadable")
 
         out_path = os.path.join(tmp, name + ".epub")
         try:
             convert(pdf_path, out_path, opts)
         except SystemExit as e:  # convert() informa de errores de usuario con SystemExit
-            return _error(str(e), 422)
+            msg = str(e)
+            return jsonify(error=CONVERT_ERRORS_EN.get(msg, msg) if _lang() == "en" else msg), 422
         except Exception:
             log.exception("Fallo al convertir %s", name)
-            return _error("Error interno al convertir el PDF.", 500)
+            return _error("internal", 500)
         os.remove(pdf_path)
 
         # El EPUB se envía por partes, sin Content-Length (Transfer-Encoding: chunked). Así no se carga
@@ -137,7 +174,7 @@ def _chunks(path: str):
 
 @app.errorhandler(413)
 def too_large(_):
-    return _error(f"El archivo supera el máximo de {MAX_MB} MB.", 413)
+    return _error("too_large", 413, mb=MAX_MB)
 
 
 if __name__ == "__main__":

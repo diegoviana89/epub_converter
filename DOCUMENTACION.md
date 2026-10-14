@@ -347,7 +347,7 @@ Campos de `POST /api/convert`:
 | `keep_headers` | `"1"` para activarlo |
 | `title`, `author` | Texto, máximo 200 caracteres |
 
-Errores: devuelven JSON `{"error": "..."}` con estos códigos.
+Errores: devuelven JSON `{"error": "..."}` con estos códigos. El mensaje va en español, o en inglés si la URL lleva `?lang=en` (la página lo añade según el idioma elegido; va en la URL y no en el formulario para que también se traduzca el `413`).
 
 | Código | Cuándo |
 |---|---|
