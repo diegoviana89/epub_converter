@@ -1004,6 +1004,14 @@ def analyze(doc: pymupdf.Document, opts: Opts, progress=None):
                     info.lines, bad, pit = extract_lines(page, pno, tp)
                     info.ocr = True
                     chars = sum(len(l.text.strip()) for l in info.lines)
+                    # una lámina o foto a página completa no tiene texto: Tesseract solo saca restos
+                    # sueltos ("a 1 p E :") y, como en las páginas con OCR no se recortan figuras, la
+                    # imagen se perdería. Sin palabras de verdad, la página va como imagen
+                    txt = " ".join(l.text for l in info.lines)
+                    real = sum(len(w) for w in WORD_RE.findall(txt) if len(w) >= 3)
+                    if real < 10 or real < 0.5 * len("".join(txt.split())):
+                        log.info("Página %d: el OCR no encontró texto -> imagen de página", pno + 1)
+                        info.lines, info.mode = [], "pageimg"
                 except Exception as e:  # tesseract no instalado, etc.
                     log.warning("Página %d: OCR falló (%s); se usa imagen de página", pno + 1, e)
                     info.mode = "pageimg"

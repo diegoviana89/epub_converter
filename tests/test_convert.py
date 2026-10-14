@@ -1,4 +1,5 @@
 import re
+import shutil
 import sys
 import zipfile
 from pathlib import Path
@@ -220,3 +221,35 @@ def test_booktabs_table_kept_as_table(tmp_path, mode):
         rows = [[re.sub(r"<[^>]+>", "", c) for c in re.findall(r"<t[hd]>(.*?)</t[hd]>", r)]
                 for r in re.findall(r"<tr>(.*?)</tr>", table)]
         assert rows == [["Enlace", "ai", "alfa", "theta"], ["1", "a1", "0", "t1"], ["2", "a2", "0", "t2"]]
+
+
+def _scan_pdf(path):
+    """Libro escaneado: una página de texto rasterizada y una lámina (foto a página completa, sin texto)."""
+    import io
+    import pymupdf
+    from PIL import Image, ImageDraw
+    para = ("Este libro escaneado tiene texto que solo se puede leer reconociendo la imagen. "
+            "La segunda hoja es una lámina sin palabras que debe conservarse como imagen. ") * 4
+    src = pymupdf.open()
+    src.new_page(width=420, height=595).insert_textbox(pymupdf.Rect(50, 60, 370, 540), para, fontsize=12)
+    scan = src[0].get_pixmap(dpi=200, colorspace=pymupdf.csGRAY).tobytes("png")
+    im = Image.new("RGB", (900, 1270))
+    d = ImageDraw.Draw(im)
+    for k in range(0, 1270, 8):
+        d.ellipse((k % 700, k, k % 700 + 220, k + 150), fill=((k * 7) % 255, (k * 3) % 255, (k * 11) % 255))
+    photo = io.BytesIO()
+    im.save(photo, "JPEG")
+    doc = pymupdf.open()
+    for data in (scan, photo.getvalue()):
+        page = doc.new_page(width=420, height=595)
+        page.insert_image(page.rect, stream=data)
+    doc.save(path)
+
+
+@pytest.mark.skipif(not shutil.which("tesseract"), reason="Tesseract no está instalado")
+def test_ocr_keeps_full_page_plate_as_image(tmp_path):
+    _scan_pdf(str(tmp_path / "s.pdf"))
+    convert(str(tmp_path / "s.pdf"), str(tmp_path / "s.epub"), Opts(ocr=True))
+    xhtml = text_of(tmp_path / "s.epub")
+    assert "reconociendo" in xhtml                 # la página de texto pasó por el OCR
+    assert xhtml.count('<div class="page"') == 1   # y la lámina no se perdió
