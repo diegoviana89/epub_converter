@@ -98,12 +98,17 @@ pdf2epub/
   model.py        tipos compartidos: Opts, Asset, Block
 web/
   app.py          API Flask
-  static/         index.html (página de inicio) e img/ (logos SVG)
+  static/         index.html (página de inicio), config.js (dónde está la API) e img/ (logos SVG)
 tests/
   make_sample_pdf.py   genera un PDF difícil de convertir
-  test_convert.py      pruebas
+  test_convert.py      pruebas del conversor
+  test_web.py          pruebas del servicio web (descarga por partes, temporales, CORS)
+deploy/
+  config.env           configuración del despliegue
+  cloudrun.sh          publica la API en Google Cloud Run
+  cloudflare-pages.sh  publica la página en Cloudflare Pages
 ejemplo/          PDF de muestra y su EPUB, para comprobaciones manuales
-Dockerfile, requirements.txt, requirements-web.txt
+Dockerfile, .dockerignore, .gcloudignore, requirements.txt, requirements-web.txt
 ```
 
 ---
@@ -329,7 +334,7 @@ página no se recorta como figura.
 |---|---|
 | `GET /` | Sirve `static/index.html` |
 | `GET /api/config` | `{"max_mb": 50, "max_pages": 800, "ocr": true}`: límites y si hay OCR |
-| `POST /api/convert` | `multipart/form-data` que devuelve el EPUB (`application/epub+zip`, como adjunto) |
+| `POST /api/convert` | `multipart/form-data` que devuelve el EPUB (`application/epub+zip`, como adjunto). Se envía por partes (`Transfer-Encoding: chunked`), sin cargarlo entero en memoria; así Cloud Run no le aplica su límite de 32 MiB por respuesta |
 
 Campos de `POST /api/convert`:
 
@@ -353,19 +358,21 @@ Errores: devuelven JSON `{"error": "..."}` con estos códigos.
 
 **Privacidad y seguridad:**
 
-- Cada conversión se hace en un directorio temporal que **se borra siempre** al terminar (`finally: shutil.rmtree`). No se guarda nada.
+- Cada conversión se hace en un directorio temporal que **se borra siempre**: al terminar de enviar el EPUB (`call_on_close`) o en cuanto hay un error. No se guarda nada.
 - El nombre del archivo se sanea (ASCII, máximo 80 caracteres).
 - El contenedor se ejecuta con un usuario sin privilegios (`app`).
+- CORS: solo los orígenes de `ALLOWED_ORIGINS` pueden llamar a `/api/*` desde otro dominio (la página publicada en Cloudflare Pages). La respuesta expone `Content-Disposition` para que la página lea el nombre del EPUB.
 
 Variables de entorno:
 
 | Variable | Valor por defecto | Uso |
 |---|---|---|
 | `PORT` | `8000` | Puerto de escucha |
-| `MAX_MB` | `50` | Tamaño máximo de subida |
+| `MAX_MB` | `50` | Tamaño máximo del PDF (en Cloud Run, `30`: no admite peticiones de más de 32 MiB) |
 | `MAX_PAGES` | `800` | Páginas máximas |
 | `WORKERS` | `2` | Procesos de Gunicorn |
 | `OCR` | `0` | `1` activa el OCR en la web (desactivado por ahora) |
+| `ALLOWED_ORIGINS` | vacío | Orígenes con permiso CORS, separados por comas (p. ej. `https://epubtailor.pages.dev`). Vacío: solo el mismo origen |
 
 ### Página de inicio (`web/static/index.html`)
 
@@ -416,7 +423,11 @@ docker rm -f pdf2epub                      # si ya existía
 docker run -d --name pdf2epub --restart unless-stopped -p 8000:8000 pdf2epub-web:latest
 ```
 
-En producción, el contenedor ejecuta `gunicorn -w ${WORKERS:-2} -t 600 -b 0.0.0.0:${PORT} web.app:app`. `.dockerignore` deja fuera `tests/`, `ejemplo/`, `.git` y `.venv`.
+En producción, el contenedor ejecuta `exec gunicorn -w ${WORKERS:-2} -t 600 --max-requests 20 --max-requests-jitter 5 -b 0.0.0.0:${PORT} web.app:app`. `exec` hace que Gunicorn reciba las señales de parada; `--max-requests` recicla cada worker tras unas 20 conversiones para que devuelva la memoria (RENDIMIENTO.md §4). `.dockerignore` deja fuera `tests/`, `ejemplo/`, `deploy/`, `.git` y `.venv`.
+
+**Producción: API en Google Cloud Run y página en Cloudflare Pages.** Pasos, configuración y costes en [DESPLIEGUE.md](DESPLIEGUE.md).
+
+La página lee `static/config.js`. Vacío (`window.EPUBTAILOR = {}`), llama a la API en su mismo servidor, como en local o en un VPS. `deploy/cloudflare-pages.sh` genera otro con la URL de Cloud Run y los límites (`api`, `limits`), así que la página no necesita llamar a `/api/config`.
 
 ---
 
@@ -454,6 +465,7 @@ Un *fixture* de ámbito de módulo lo convierte una sola vez. Cada prueba inspec
 | `test_low_res_figure_is_smoothed_not_blocky` | Las figuras de baja resolución salen suavizadas, no dentadas |
 | `test_stacked_figures_keep_their_captions_and_header_dropped` | Las figuras apiladas conservan su pie |
 | `test_booktabs_table_kept_as_table` | Las tablas *booktabs* se detectan como tabla |
+| `test_web.py` (6 pruebas) | El EPUB se envía por partes y sin `Content-Length`; el temporal se borra al terminar y tras un error; CORS para orígenes permitidos, *preflight* y no permitidos; 413 legible desde otro origen. Se omiten si Flask no está instalado |
 | `test_ocr_keeps_full_page_plate_as_image` | Con OCR, una página escaneada de texto se reconoce y una lámina sin texto se conserva como imagen (se omite si no hay Tesseract) |
 
 ---

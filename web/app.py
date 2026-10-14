@@ -1,11 +1,10 @@
 """Servidor web: sube un PDF y descarga el EPUB.
 
 Desarrollo:  python -m web.app
-Producción:  gunicorn -w 2 -t 600 -b 0.0.0.0:8000 web.app:app
+Producción:  gunicorn -w 2 -t 600 -b 0.0.0.0:8000 web.app:app  (ver Dockerfile y DESPLIEGUE.md)
 """
 from __future__ import annotations
 
-import io
 import logging
 import os
 import re
@@ -14,7 +13,7 @@ import tempfile
 import unicodedata
 
 import pymupdf
-from flask import Flask, jsonify, request, send_file, send_from_directory
+from flask import Flask, Response, jsonify, request, send_from_directory
 
 from pdf2epub.convert import convert
 from pdf2epub.model import Opts
@@ -24,9 +23,14 @@ MAX_PAGES = int(os.environ.get("MAX_PAGES", "800"))
 # El OCR está desactivado en el servicio hasta nueva decisión (unos 4 s por página; ver RENDIMIENTO.md).
 # Se activa con OCR=1, siempre que Tesseract esté instalado.
 OCR_AVAILABLE = os.environ.get("OCR") == "1" and shutil.which("tesseract") is not None
+# Orígenes que pueden llamar a la API desde otro dominio (la página en Cloudflare Pages), separados
+# por comas: "https://epubtailor.pages.dev,https://epubtailor.com". Vacío: solo el mismo origen.
+ALLOWED_ORIGINS = {o.strip().rstrip("/") for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()}
+CHUNK = 256 * 1024
 
 app = Flask(__name__, static_folder="static", static_url_path="")
-app.config["MAX_CONTENT_LENGTH"] = MAX_MB * 1024 * 1024
+# 1 MB de margen para los demás campos del formulario multipart: un PDF de MAX_MB justos no da 413.
+app.config["MAX_CONTENT_LENGTH"] = (MAX_MB + 1) * 1024 * 1024
 log = logging.getLogger("pdf2epub.web")
 
 
@@ -44,6 +48,18 @@ def _safe_name(filename: str) -> str:
 def _text(field: str, limit: int = 200) -> str | None:
     v = (request.form.get(field) or "").strip()
     return v[:limit] or None
+
+
+@app.after_request
+def cors(resp):
+    origin = (request.headers.get("Origin") or "").rstrip("/")
+    if origin and origin in ALLOWED_ORIGINS and request.path.startswith("/api/"):
+        resp.headers["Access-Control-Allow-Origin"] = origin
+        resp.headers["Access-Control-Expose-Headers"] = "Content-Disposition"
+        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        resp.headers["Access-Control-Max-Age"] = "86400"
+        resp.vary.add("Origin")
+    return resp
 
 
 @app.get("/")
@@ -76,6 +92,7 @@ def api_convert():
                 title=_text("title"), author=_text("author"))
 
     tmp = tempfile.mkdtemp(prefix="pdf2epub-")
+    streaming = False  # si la respuesta lleva el EPUB, el directorio se borra al terminar de enviarlo
     try:
         pdf_path = os.path.join(tmp, name + ".pdf")
         f.save(pdf_path)
@@ -98,14 +115,24 @@ def api_convert():
         except Exception:
             log.exception("Fallo al convertir %s", name)
             return _error("Error interno al convertir el PDF.", 500)
+        os.remove(pdf_path)
 
-        with open(out_path, "rb") as fh:
-            data = io.BytesIO(fh.read())
+        # El EPUB se envía por partes, sin Content-Length (Transfer-Encoding: chunked). Así no se carga
+        # entero en memoria y Cloud Run no le aplica su límite de 32 MiB por respuesta.
+        resp = Response(_chunks(out_path), mimetype="application/epub+zip")
+        resp.headers["Content-Disposition"] = f'attachment; filename="{name}.epub"'
+        resp.call_on_close(lambda: shutil.rmtree(tmp, ignore_errors=True))
+        streaming = True
+        return resp
     finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+        if not streaming:
+            shutil.rmtree(tmp, ignore_errors=True)
 
-    return send_file(data, mimetype="application/epub+zip", as_attachment=True,
-                     download_name=name + ".epub")
+
+def _chunks(path: str):
+    with open(path, "rb") as fh:
+        while block := fh.read(CHUNK):
+            yield block
 
 
 @app.errorhandler(413)

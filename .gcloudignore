@@ -1,0 +1,14 @@
+# Archivos que no se suben a Google Cloud con `gcloud run deploy --source .`
+.gcloudignore
+.git
+.gitignore
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+tests/
+ejemplo/
+deploy/
+dist/
+*.md

@@ -453,8 +453,12 @@
   </div></div>
 </footer>
 
+<script src="config.js"></script>
 <script>
   const $ = id => document.getElementById(id);
+  // Dónde está la API: en el mismo servidor (por defecto) o en otro dominio (config.js de Cloudflare Pages).
+  const CFG = window.EPUBTAILOR || {};
+  const API = CFG.api ? CFG.api.replace(/\/+$/, "") + "/api/" : "api/";
   let maxMB = 50, file = null, url = null, busy = false;
 
   // «que fluyen»: cada letra ondula con un pequeño retraso
@@ -469,7 +473,7 @@
     em.replaceChildren(sr, vis);
   }
 
-  fetch("api/config").then(r => r.json()).then(c => {
+  function applyConfig(c) {
     maxMB = c.max_mb;
     if (!file) $("dropHint").textContent = `Hasta ${c.max_mb} MB y ${c.max_pages} páginas`;
     $("limMB").textContent = `${c.max_mb} MB`;
@@ -477,7 +481,10 @@
     $("ocrWrap").hidden = !c.ocr;
     document.querySelectorAll(".con-ocr").forEach(e => e.hidden = !c.ocr);
     document.querySelectorAll(".sin-ocr").forEach(e => e.hidden = c.ocr);
-  }).catch(() => {});
+  }
+  // Si config.js trae los límites, no hace falta preguntar a la API (y no se despierta Cloud Run).
+  if (CFG.limits) applyConfig(CFG.limits);
+  else fetch(API + "config").then(r => r.json()).then(applyConfig).catch(() => {});
 
   // Opciones plegables
   $("optsBtn").addEventListener("click", () => {
@@ -537,7 +544,7 @@
     if ($("keep").checked) fd.append("keep_headers", "1");
 
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", "api/convert");
+    xhr.open("POST", API + "convert");
     xhr.responseType = "blob";
     const bar = $("bar"), fill = bar.querySelector("i");
     const done = () => { busy = false; bar.hidden = true; $("go").disabled = false; };
