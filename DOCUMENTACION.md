@@ -263,12 +263,12 @@ python -m pdf2epub escaneado.pdf --ocr --ocr-lang spa
 | Motor | **Tesseract OCR**, motor OCR de código abierto |
 | Integración | PyMuPDF, `page.get_textpage_ocr(language=opts.ocr_lang, dpi=300, full=True)`: rasteriza la página entera a **300 ppp**, se la pasa a Tesseract y recibe una capa de texto con posiciones, que se procesa igual que el texto nativo del PDF |
 | Idiomas | `spa+eng` por defecto (`--ocr-lang`, con la sintaxis de Tesseract: `spa`, `eng`, `por`, `fra`…). Cada idioma necesita su paquete `tesseract-ocr-<idioma>`. |
-| Cuándo se aplica | Hace falta **activarlo** (viene desactivado): casilla «Es un escaneo» en la web o `--ocr` en la línea de comandos. Aun así, solo actúa en las páginas clasificadas como **escaneadas**: menos de 25 caracteres de texto fuera de cabecera y pie, y una imagen que cubre al menos el 80 % de la página. Las páginas con texto nativo nunca pasan por OCR. |
+| Cuándo se aplica | Hace falta **activarlo** (viene desactivado): `--ocr` en la línea de comandos, o la casilla «Es un escaneo» en la web cuando el servicio tiene el OCR activado (ahora no lo tiene; ver la fila «En la web»). Aun así, solo actúa en las páginas clasificadas como **escaneadas**: menos de 25 caracteres de texto fuera de cabecera y pie, y una imagen que cubre al menos el 80 % de la página. Las páginas con texto nativo nunca pasan por OCR. |
 | Si falla | Por ejemplo, porque Tesseract no está instalado: se registra un aviso y la página se incluye **como imagen**, nunca como texto basura. |
 | Diferencias en páginas con OCR | La imagen de fondo es el propio escaneo, así que no se recortan figuras de ella. Solo se excluyen las tablas detectadas. |
 | Instalación local | `sudo apt install tesseract-ocr tesseract-ocr-spa` |
 | En Docker | La imagen instala `tesseract-ocr`, `tesseract-ocr-spa` y `tesseract-ocr-eng` |
-| En la web | `/api/config` informa de `ocr: true` solo si `tesseract` está en el `PATH` (`shutil.which`). Si no está, la API rechaza las peticiones con OCR. |
+| En la web | **Desactivado por ahora** (decisión del 13/10/2026: cuesta unos 4 s por página y los escaneos se esperan poco frecuentes). Se activa con la variable `OCR=1`; además, `tesseract` tiene que estar en el `PATH`. Sin las dos cosas, `/api/config` devuelve `ocr: false`, la página oculta la casilla y los textos sobre el OCR, y la API rechaza las peticiones con OCR. Los escaneos se convierten igual, como imágenes de página. |
 | Limitación | La calidad depende del escaneo y de la versión de Tesseract instalada |
 
 ### ¿Qué es un PDF escaneado?
@@ -292,7 +292,7 @@ escaneo de solo imágenes y el OCR sirve; si puedes, ya tiene texto y el OCR no 
 | PDF mixto (texto y algunas páginas escaneadas) con el OCR activado | Solo en las páginas escaneadas |
 | Página con texto dañado (más del 8 % de caracteres basura) | No: va como imagen. El OCR no se usa para rescatar texto dañado |
 
-El coste del OCR en CPU, memoria y tiempo todavía no se ha medido (ver [RENDIMIENTO.md](RENDIMIENTO.md)).
+El OCR cuesta unos 4 s de CPU por página (unas 30 veces más que un libro digital) y reconoce el 90–94 % de las palabras en un escaneo limpio; con el timeout actual de 600 s, un escaneo de más de ~140 páginas no termina (ver [RENDIMIENTO.md](RENDIMIENTO.md), §5).
 
 ### ¿Y si el PDF tiene imágenes? ¿Se activa el OCR?
 
@@ -365,6 +365,7 @@ Variables de entorno:
 | `MAX_MB` | `50` | Tamaño máximo de subida |
 | `MAX_PAGES` | `800` | Páginas máximas |
 | `WORKERS` | `2` | Procesos de Gunicorn |
+| `OCR` | `0` | `1` activa el OCR en la web (desactivado por ahora) |
 
 ### Página de inicio (`web/static/index.html`)
 
@@ -374,7 +375,7 @@ Es un único archivo estático, sin compilación ni frameworks.
 - **Diseño:** paleta verde EPUB y melocotón PDF con tokens `oklch` en `:root`. Tipografías Newsreader (serif) y Figtree (sans).
 - **Formulario:**
   - Arrastrar y soltar o elegir un archivo.
-  - Opciones plegables: modo, tablas, OCR, cabeceras, título y autor.
+  - Opciones plegables: modo, tablas, cabeceras, título y autor (y OCR, solo si el servicio lo tiene activado).
   - Subida por `XMLHttpRequest` con barra de progreso.
   - Descarga del resultado y su tamaño (en KB por debajo de 1 MB; en MB a partir de ahí).
   - Consejo sobre la vía de envío al Kindle según el tamaño.

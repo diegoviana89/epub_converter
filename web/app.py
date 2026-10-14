@@ -21,7 +21,9 @@ from pdf2epub.model import Opts
 
 MAX_MB = int(os.environ.get("MAX_MB", "50"))
 MAX_PAGES = int(os.environ.get("MAX_PAGES", "800"))
-OCR_AVAILABLE = shutil.which("tesseract") is not None
+# El OCR está desactivado en el servicio hasta nueva decisión (unos 4 s por página; ver RENDIMIENTO.md).
+# Se activa con OCR=1, siempre que Tesseract esté instalado.
+OCR_AVAILABLE = os.environ.get("OCR") == "1" and shutil.which("tesseract") is not None
 
 app = Flask(__name__, static_folder="static", static_url_path="")
 app.config["MAX_CONTENT_LENGTH"] = MAX_MB * 1024 * 1024

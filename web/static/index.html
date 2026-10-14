@@ -395,7 +395,7 @@
       <dl class="lim">
         <div><dt id="limMB">50 MB</dt><dd>Tamaño máximo del PDF.</dd></div>
         <div><dt id="limPages">800 páginas</dt><dd>Número máximo de páginas.</dd></div>
-        <div><dt>~2 min</dt><dd>Lo que tarda un libro de 600 páginas. Con OCR puede tardar bastante más.</dd></div>
+        <div><dt>~2 min</dt><dd>Lo que tarda un libro de 600 páginas.<span class="con-ocr" hidden> Con OCR puede tardar bastante más.</span></dd></div>
         <div><dt>Sin contraseña</dt><dd>Los PDF protegidos con contraseña no se pueden convertir.</dd></div>
       </dl>
     </div>
@@ -432,13 +432,13 @@
     <div class="q"><h3><button type="button">¿Sirve para Kobo, Apple Books o Google Play Libros?<span class="sign" aria-hidden="true">+</span></button></h3>
       <p>Sí. EPUB es el formato estándar de libros electrónicos y lo abren todos.</p></div>
     <div class="q"><h3><button type="button">¿Qué PDF dan mejor resultado?<span class="sign" aria-hidden="true">+</span></button></h3>
-      <p>Los que tienen texto digital, es decir, en los que puedes seleccionar el texto: libros, manuales, artículos. Si es un escaneo, activa el OCR en las opciones. Para cómics, partituras o mucha matemática, elige «páginas como imagen».</p></div>
+      <p>Los que tienen texto digital, es decir, en los que puedes seleccionar el texto: libros, manuales, artículos. <span class="con-ocr" hidden>Si es un escaneo, activa el OCR en las opciones.</span><span class="sin-ocr">Los escaneos (páginas que son solo una foto) salen como imágenes de página, sin texto reconocido.</span> Para cómics, partituras o mucha matemática, elige «páginas como imagen».</p></div>
     <div class="q"><h3><button type="button">¿Por qué el EPUB pesa tanto?<span class="sign" aria-hidden="true">+</span></button></h3>
       <p>Por las imágenes: se guardan con resolución suficiente para ampliarlas en el Kindle. Un libro con muchas figuras puede pesar tanto como el PDF o más. Si pasa de 25 MB, envíalo con la web <em>Enviar a Kindle</em>.</p></div>
     <div class="q"><h3><button type="button">¿Se conserva la tipografía del PDF?<span class="sign" aria-hidden="true">+</span></button></h3>
       <p>No, a propósito. El EPUB no fija fuente ni tamaño para que el Kindle use los que tú elijas. Sí se conservan los títulos, la negrita, la cursiva, las listas, las imágenes y las tablas.</p></div>
     <div class="q"><h3><button type="button">Salen páginas como imagen en un libro de texto<span class="sign" aria-hidden="true">+</span></button></h3>
-      <p>Esas páginas no tenían texto legible en el PDF (escaneadas o con texto dañado). Si es un escaneo, vuelve a convertir con el OCR activado.</p></div>
+      <p>Esas páginas no tenían texto legible en el PDF (escaneadas o con texto dañado), así que van como imagen para no mostrar texto erróneo.<span class="con-ocr" hidden> Si es un escaneo, vuelve a convertir con el OCR activado.</span></p></div>
     <div class="q"><h3><button type="button">La maquetación sale desordenada<span class="sign" aria-hidden="true">+</span></button></h3>
       <p>Pasa con diseños muy artísticos, revistas o páginas llenas de fórmulas. Vuelve a convertir con el tipo «páginas como imagen».</p></div>
     <div class="q"><h3><button type="button">¿Y si mi PDF tiene contraseña?<span class="sign" aria-hidden="true">+</span></button></h3>
@@ -475,6 +475,8 @@
     $("limMB").textContent = `${c.max_mb} MB`;
     $("limPages").textContent = `${c.max_pages} páginas`;
     $("ocrWrap").hidden = !c.ocr;
+    document.querySelectorAll(".con-ocr").forEach(e => e.hidden = !c.ocr);
+    document.querySelectorAll(".sin-ocr").forEach(e => e.hidden = c.ocr);
   }).catch(() => {});
 
   // Opciones plegables

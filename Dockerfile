@@ -14,6 +14,6 @@ COPY --chmod=a+rX web ./web
 RUN useradd --create-home app
 USER app
 
-ENV PORT=8000 MAX_MB=50 MAX_PAGES=800
+ENV PORT=8000 MAX_MB=50 MAX_PAGES=800 OCR=0
 EXPOSE 8000
 CMD gunicorn -w ${WORKERS:-2} -t 600 -b 0.0.0.0:${PORT} web.app:app
