@@ -98,7 +98,8 @@ pdf2epub/
   model.py        tipos compartidos: Opts, Asset, Block
 web/
   app.py          API Flask
-  static/         index.html (página de inicio), config.js (dónde está la API) e img/ (logos SVG)
+  static/         index.html (página de inicio), i18n.js (inglés), config.js (dónde está la API),
+                  404.html e img/ (logos SVG)
 tests/
   make_sample_pdf.py   genera un PDF difícil de convertir
   test_convert.py      pruebas del conversor
@@ -106,7 +107,8 @@ tests/
 deploy/
   config.env           configuración del despliegue
   cloudrun.sh          publica la API en Google Cloud Run
-  cloudflare-pages.sh  publica la página en Cloudflare Pages
+  cloudflare-pages.sh  publica la página en Cloudflare Pages (con robots.txt, sitemap.xml,
+                       hreflang y la verificación de Google Search Console)
 ejemplo/          PDF de muestra y su EPUB, para comprobaciones manuales
 Dockerfile, .dockerignore, .gcloudignore, requirements.txt, requirements-web.txt
 ```

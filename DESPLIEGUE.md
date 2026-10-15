@@ -79,6 +79,33 @@ que la nube sea 1,5–2× más lenta que el portátil de la prueba (no medido). 
 - **API**: puede quedarse en su dirección `*.run.app`; el usuario nunca la ve.
 - No actives el proxy de Cloudflare (nube naranja) delante de la API: corta las peticiones a los 100 s.
 
+## Google Search Console (gratis)
+
+`deploy/cloudflare-pages.sh` ya publica lo que necesitan los buscadores:
+
+- `robots.txt` y `sitemap.xml`, con las direcciones de `SITE_URL`.
+- Etiquetas `hreflang`: la versión en español es `/?lang=es` y la inglesa `/?lang=en`. La dirección sin
+  parámetro (`/`) elige idioma según el navegador, y Googlebot la vería en inglés; por eso se declaran las dos.
+- `404.html`: sin él, Cloudflare Pages devuelve la página de inicio con código 200 en cualquier dirección.
+- `noindex` en las direcciones secundarias `<versión>.<proyecto>.pages.dev`, para que no compitan con la principal.
+
+Pasos (una sola vez):
+
+1. Entra en <https://search.google.com/search-console> con tu cuenta de Google y añade una propiedad de
+   tipo **Prefijo de URL** con `https://epubtailor.pages.dev/`. (La de tipo *Dominio* necesita DNS propio,
+   y `pages.dev` no es tuyo.)
+2. Elige el método **Etiqueta HTML** y copia la etiqueta `<meta name="google-site-verification" ...>`.
+3. Pégala en `GOOGLE_SITE_VERIFICATION` dentro de `deploy/config.env` (sirve el código suelto o la etiqueta
+   entera) y publica: `deploy/cloudflare-pages.sh`.
+4. Vuelve a Search Console y pulsa **Verificar**. No borres la etiqueta después: Google la comprueba de vez en cuando.
+5. En **Sitemaps**, envía `sitemap.xml`.
+6. En **Inspección de URLs**, inspecciona `https://epubtailor.pages.dev/?lang=es` y pulsa **Solicitar
+   indexación**; repite con `?lang=en`.
+
+Google tarda de días a semanas en indexar. Si más adelante usas un dominio propio, cambia `SITE_URL`, crea
+una propiedad nueva para ese dominio y añade a `_headers` (en el script) la regla
+`https://:project.pages.dev/*` con `X-Robots-Tag: noindex` para que `pages.dev` no compita con él.
+
 ## Comprobar que funciona
 
 ```bash
