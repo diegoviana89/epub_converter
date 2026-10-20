@@ -12,7 +12,7 @@
 <meta property="og:locale" content="es_ES">
 <meta property="og:locale:alternate" content="en_US">
 <meta name="twitter:card" content="summary">
-<!-- deploy/cloudflare-pages.sh sustituye la línea siguiente por la verificación de Google, og:url y hreflang -->
+<!-- deploy/cloudflare-pages.sh sustituye la línea siguiente por la verificación de Google, canonical, og:url y datos estructurados -->
 <!--SEO-->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -486,10 +486,15 @@
   let lang = "es", T = MSG.es;
 
   // ?lang=en|es manda; si no, el último elegido; si no, el del navegador (inglés si no es español ni inglés).
+  // Publicada, hay dos páginas HTML: «/» en español y «/en/» ya traducida (deploy/prerender_en.mjs).
+  // El script solo cambia de una a otra; en local (sin /en/) traduce en el sitio, como siempre.
+  const root = document.documentElement, onEn = root.dataset.pageLang === "en", enUrl = root.dataset.enUrl;
   function firstLang() {
+    if (onEn) return "en";
     const q = new URLSearchParams(location.search).get("lang");
     if (q in MSG) return q;
     try { const s = localStorage.getItem("lang"); if (s in MSG) return s; } catch {}
+    if (enUrl) return "es";
     for (const l of navigator.languages || [navigator.language || ""]) {
       const m = /^(es|en)\b/i.exec(l);
       if (m) return m[1].toLowerCase();
@@ -513,6 +518,8 @@
   document.querySelectorAll(".lang button").forEach(b => b.addEventListener("click", () => {
     const l = b.dataset.lang;
     try { localStorage.setItem("lang", l); } catch {}
+    if (onEn && l === "es") { location.href = "/?lang=es"; return; }
+    if (enUrl && l === "en") { location.href = enUrl; return; }
     const u = new URL(location.href);
     if (u.searchParams.has("lang")) { u.searchParams.set("lang", l); history.replaceState(null, "", u); }
     setLang(l);
@@ -665,7 +672,9 @@
     xhr.send(fd);
   });
 
-  setLang(firstLang());
+  const first = firstLang();
+  if (enUrl && first === "en") location.replace(enUrl);   // ?lang=en o idioma elegido antes
+  else setLang(first);
   // Si config.js trae los límites, no hace falta preguntar a la API (y no se despierta Cloud Run).
   if (CFG.limits) applyConfig(CFG.limits);
   else fetch(API + "config").then(r => r.json()).then(applyConfig).catch(() => {});

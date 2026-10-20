@@ -54,19 +54,25 @@ VERIF="$GOOGLE_SITE_VERIFICATION"
 [[ "$VERIF" == *content=* ]] && VERIF=$(sed -E 's/.*content="([^"]*)".*/\1/' <<<"$VERIF")
 [[ -z "$VERIF" || "$VERIF" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "GOOGLE_SITE_VERIFICATION no válido: '$VERIF'" >&2; exit 1; }
 
-# La página elige el idioma con ?lang=es|en; sin parámetro, según el navegador (x-default).
+# Dos páginas HTML: «/» en español y «/en/» en inglés, generada por prerender_en.mjs a partir de
+# i18n.js (Google ve el inglés sin ejecutar JavaScript). Cada una es su propia canónica y se enlazan con hreflang.
 SEO_TAGS=$(mktemp)
 {
   [[ -n "$VERIF" ]] && echo "<meta name=\"google-site-verification\" content=\"$VERIF\">"
-  echo "<meta property=\"og:url\" content=\"$SITE/\">"
-  echo "<link rel=\"alternate\" hreflang=\"es\" href=\"$SITE/?lang=es\">"
-  echo "<link rel=\"alternate\" hreflang=\"en\" href=\"$SITE/?lang=en\">"
+  echo "<link rel=\"canonical\" href=\"$SITE/\">"
+  echo "<link rel=\"alternate\" hreflang=\"es\" href=\"$SITE/\">"
+  echo "<link rel=\"alternate\" hreflang=\"en\" href=\"$SITE/en/\">"
   echo "<link rel=\"alternate\" hreflang=\"x-default\" href=\"$SITE/\">"
+  echo "<meta property=\"og:url\" content=\"$SITE/\">"
+  echo "<script type=\"application/ld+json\">{\"@context\":\"https://schema.org\",\"@type\":\"WebApplication\",\"name\":\"EpubTailor\",\"url\":\"$SITE/\",\"description\":\"Convierte PDF a EPUB para Kindle: texto justificado, sin cabeceras ni números de página, con índice e imágenes.\",\"applicationCategory\":\"UtilitiesApplication\",\"operatingSystem\":\"Any\",\"browserRequirements\":\"Requires JavaScript\",\"inLanguage\":[\"es\",\"en\"],\"offers\":{\"@type\":\"Offer\",\"price\":\"0\",\"priceCurrency\":\"USD\"}}</script>"
 } > "$SEO_TAGS"
 grep -q '^<!--SEO-->$' "$OUT/index.html" || { echo "Falta la marca <!--SEO--> en index.html" >&2; exit 1; }
 awk -v f="$SEO_TAGS" '$0 == "<!--SEO-->" { while ((getline l < f) > 0) print l; next } { print }' \
   "$OUT/index.html" > "$OUT/index.tmp" && mv "$OUT/index.tmp" "$OUT/index.html"
 rm -f "$SEO_TAGS"
+mkdir -p "$OUT/en"
+node deploy/prerender_en.mjs "$OUT/index.html" "$OUT/en/index.html"
+sed -i 's|^<html lang="es">$|<html lang="es" data-en-url="/en/">|' "$OUT/index.html"
 
 cat > "$OUT/robots.txt" <<TXT
 User-agent: *
@@ -75,19 +81,16 @@ Allow: /
 Sitemap: $SITE/sitemap.xml
 TXT
 
-alternates() {
-  echo "    <xhtml:link rel=\"alternate\" hreflang=\"es\" href=\"$SITE/?lang=es\"/>"
-  echo "    <xhtml:link rel=\"alternate\" hreflang=\"en\" href=\"$SITE/?lang=en\"/>"
-  echo "    <xhtml:link rel=\"alternate\" hreflang=\"x-default\" href=\"$SITE/\"/>"
-}
 {
   echo '<?xml version="1.0" encoding="UTF-8"?>'
   echo '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">'
-  for u in "$SITE/" "$SITE/?lang=es" "$SITE/?lang=en"; do
+  for u in "$SITE/" "$SITE/en/"; do
     echo "  <url>"
     echo "    <loc>$u</loc>"
     echo "    <lastmod>$LASTMOD</lastmod>"
-    alternates
+    echo "    <xhtml:link rel=\"alternate\" hreflang=\"es\" href=\"$SITE/\"/>"
+    echo "    <xhtml:link rel=\"alternate\" hreflang=\"en\" href=\"$SITE/en/\"/>"
+    echo "    <xhtml:link rel=\"alternate\" hreflang=\"x-default\" href=\"$SITE/\"/>"
     echo "  </url>"
   done
   echo '</urlset>'

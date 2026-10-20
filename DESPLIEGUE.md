@@ -84,8 +84,13 @@ que la nube sea 1,5–2× más lenta que el portátil de la prueba (no medido). 
 `deploy/cloudflare-pages.sh` ya publica lo que necesitan los buscadores:
 
 - `robots.txt` y `sitemap.xml`, con las direcciones de `SITE_URL`.
-- Etiquetas `hreflang`: la versión en español es `/?lang=es` y la inglesa `/?lang=en`. La dirección sin
-  parámetro (`/`) elige idioma según el navegador, y Googlebot la vería en inglés; por eso se declaran las dos.
+- Dos páginas HTML: `/` en español y `/en/` en inglés. `deploy/prerender_en.mjs` genera la segunda a partir
+  de `web/static/i18n.js` (mismo cambio que hace el navegador, pero ya hecho), para que Google lea el inglés
+  sin ejecutar JavaScript. Cada página tiene su `canonical`, enlazadas con `hreflang` (también en el sitemap),
+  y datos estructurados JSON-LD `WebApplication`.
+- Los botones ES/EN pasan de una a otra. `/` ya no elige idioma según el navegador (Googlebot navega en
+  inglés y vería otra cosa que su HTML); quien eligió inglés antes pasa a `/en/`. En local (sin `/en/`) la
+  página traduce en el sitio como antes.
 - `404.html`: sin él, Cloudflare Pages devuelve la página de inicio con código 200 en cualquier dirección.
 - `noindex` en las direcciones secundarias `<versión>.<proyecto>.pages.dev`, para que no compitan con la principal.
 
@@ -99,8 +104,8 @@ Pasos (una sola vez):
    entera) y publica: `deploy/cloudflare-pages.sh`.
 4. Vuelve a Search Console y pulsa **Verificar**. No borres la etiqueta después: Google la comprueba de vez en cuando.
 5. En **Sitemaps**, envía `sitemap.xml`.
-6. En **Inspección de URLs**, inspecciona `https://epubtailor.pages.dev/?lang=es` y pulsa **Solicitar
-   indexación**; repite con `?lang=en`.
+6. En **Inspección de URLs**, inspecciona `https://epubtailor.pages.dev/` y pulsa **Solicitar
+   indexación** (una sola vez al día: la cuota es baja). Si quieres, también `/en/`, al día siguiente.
 
 Google tarda de días a semanas en indexar. Si más adelante usas un dominio propio, cambia `SITE_URL`, crea
 una propiedad nueva para ese dominio y añade a `_headers` (en el script) la regla

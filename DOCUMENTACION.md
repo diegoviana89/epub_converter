@@ -108,7 +108,7 @@ deploy/
   config.env           configuración del despliegue
   cloudrun.sh          publica la API en Google Cloud Run
   cloudflare-pages.sh  publica la página en Cloudflare Pages (con robots.txt, sitemap.xml,
-                       hreflang y la verificación de Google Search Console)
+                       /en/ prerenderizado, canonical, hreflang, datos estructurados y la verificación de Google Search Console)
 ejemplo/          PDF de muestra y su EPUB, para comprobaciones manuales
 Dockerfile, .dockerignore, .gcloudignore, requirements.txt, requirements-web.txt
 ```
