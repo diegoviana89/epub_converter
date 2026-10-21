@@ -54,11 +54,17 @@ VERIF="$GOOGLE_SITE_VERIFICATION"
 [[ "$VERIF" == *content=* ]] && VERIF=$(sed -E 's/.*content="([^"]*)".*/\1/' <<<"$VERIF")
 [[ -z "$VERIF" || "$VERIF" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "GOOGLE_SITE_VERIFICATION no válido: '$VERIF'" >&2; exit 1; }
 
+# Código de Bing Webmaster Tools: igual, admite el código suelto o la etiqueta <meta ...> completa.
+BING="${BING_SITE_VERIFICATION:-}"
+[[ "$BING" == *content=* ]] && BING=$(sed -E 's/.*content="([^"]*)".*/\1/' <<<"$BING")
+[[ -z "$BING" || "$BING" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "BING_SITE_VERIFICATION no válido: '$BING'" >&2; exit 1; }
+
 # Dos páginas HTML: «/» en español y «/en/» en inglés, generada por prerender_en.mjs a partir de
 # i18n.js (Google ve el inglés sin ejecutar JavaScript). Cada una es su propia canónica y se enlazan con hreflang.
 SEO_TAGS=$(mktemp)
 {
   [[ -n "$VERIF" ]] && echo "<meta name=\"google-site-verification\" content=\"$VERIF\">"
+  [[ -n "$BING" ]] && echo "<meta name=\"msvalidate.01\" content=\"$BING\">"
   echo "<link rel=\"canonical\" href=\"$SITE/\">"
   echo "<link rel=\"alternate\" hreflang=\"es\" href=\"$SITE/\">"
   echo "<link rel=\"alternate\" hreflang=\"en\" href=\"$SITE/en/\">"
@@ -96,7 +102,7 @@ TXT
   echo '</urlset>'
 } > "$OUT/sitemap.xml"
 
-echo "Página generada en $OUT/ (API: $API_URL; sitio: $SITE; verificación de Google: ${VERIF:-no})"
+echo "Página generada en $OUT/ (API: $API_URL; sitio: $SITE; verificación de Google: ${VERIF:-no}; de Bing: ${BING:-no})"
 [[ "${SOLO_GENERAR:-0}" == 1 ]] && exit 0
 
 npx --yes wrangler@4.141.0 pages deploy "$OUT" --project-name "$PAGES_PROJECT" --branch main --commit-dirty=true

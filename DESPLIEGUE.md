@@ -111,6 +111,13 @@ Google tarda de días a semanas en indexar. Si más adelante usas un dominio pro
 una propiedad nueva para ese dominio y añade a `_headers` (en el script) la regla
 `https://:project.pages.dev/*` con `X-Robots-Tag: noindex` para que `pages.dev` no compita con él.
 
+## Bing Webmaster Tools (gratis)
+
+Bing también alimenta a DuckDuckGo y Ecosia. En <https://www.bing.com/webmasters> añade `SITE_URL`, elige el
+método **HTML Meta Tag**, copia el código de `msvalidate.01` en `BING_SITE_VERIFICATION` (`deploy/config.env`),
+publica con `deploy/cloudflare-pages.sh` y pulsa **Verify**. Después envía `sitemap.xml` en **Sitemaps**. Como
+con Google, no borres la etiqueta. (Alternativa: **Import** desde Search Console, sin verificar de nuevo.)
+
 ## Comprobar que funciona
 
 ```bash
